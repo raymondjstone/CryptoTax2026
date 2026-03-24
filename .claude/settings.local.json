@@ -4,7 +4,12 @@
       "Bash(dotnet --version)",
       "Bash(dotnet build:*)",
       "Bash(dotnet add:*)",
-      "Bash(git status:*)"
+      "Bash(git status:*)",
+      "Bash(ls *.sln)",
+      "Bash(ls:*)",
+      "WebSearch",
+      "WebFetch(domain:support.kraken.com)",
+      "WebFetch(domain:docs.kraken.com)"
     ]
   }
 }
