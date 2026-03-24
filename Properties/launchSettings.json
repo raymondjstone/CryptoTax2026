@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "CryptoTax2026 (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "CryptoTax2026 (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

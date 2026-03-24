@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="CryptoTax2026.Pages.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    NavigationCacheMode="Required">
+
+    <ScrollViewer Padding="0,0,20,0">
+        <StackPanel Spacing="16" MaxWidth="800" HorizontalAlignment="Left">
+
+            <TextBlock Text="Kraken API Settings" Style="{StaticResource TitleTextBlockStyle}" />
+            <InfoBar x:Name="InfoMessage" IsOpen="False" />
+
+            <TextBlock Text="You need a Kraken API key with 'Query Ledger/Trade Data' permission. Create one at kraken.com > Security > API."
+                       TextWrapping="Wrap" Opacity="0.7" />
+
+            <TextBox x:Name="ApiKeyBox" Header="API Key" PlaceholderText="Enter your Kraken API key"
+                     Width="500" HorizontalAlignment="Left" />
+
+            <PasswordBox x:Name="ApiSecretBox" Header="API Secret" PlaceholderText="Enter your Kraken API secret"
+                         Width="500" HorizontalAlignment="Left" />
+
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button x:Name="SaveCredentialsBtn" Content="Save Credentials" Style="{StaticResource AccentButtonStyle}"
+                        Click="SaveCredentials_Click" />
+                <Button x:Name="TestConnectionBtn" Content="Test Connection"
+                        Click="TestConnection_Click" />
+            </StackPanel>
+
+            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
+
+            <TextBlock Text="Trade Data" Style="{StaticResource TitleTextBlockStyle}" />
+
+            <StackPanel x:Name="TradeInfoPanel" Spacing="4">
+                <TextBlock x:Name="TradeStatusText" Text="No trades downloaded yet." />
+                <TextBlock x:Name="TradeFileDate" Text="" Opacity="0.6" />
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button x:Name="DownloadBtn" Content="Download Trades"
+                        Style="{StaticResource AccentButtonStyle}"
+                        Click="DownloadTrades_Click" />
+                <Button x:Name="ResetBtn" Content="Reset &amp; Re-download All"
+                        Click="ResetTrades_Click" />
+            </StackPanel>
+            <TextBlock x:Name="ResumeInfoText" Text="" Opacity="0.6" FontStyle="Italic" />
+
+            <ProgressBar x:Name="DownloadProgress" IsIndeterminate="False" Visibility="Collapsed"
+                         Width="500" HorizontalAlignment="Left" />
+            <TextBlock x:Name="DownloadStatusText" Text="" Visibility="Collapsed" />
+
+            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
+
+            <TextBlock Text="Trade Summary" Style="{StaticResource TitleTextBlockStyle}" />
+
+            <StackPanel x:Name="TradeSummaryPanel" Spacing="4">
+                <TextBlock x:Name="TotalTradesText" Text="" />
+                <TextBlock x:Name="DateRangeText" Text="" />
+                <TextBlock x:Name="TaxYearsText" Text="" />
+                <TextBlock x:Name="AssetsText" Text="" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
+
+            <TextBlock Text="Data Location" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <TextBlock x:Name="DataPathText" Text="" IsTextSelectionEnabled="True" Opacity="0.7" TextWrapping="Wrap" />
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>
