@@ -49,6 +49,8 @@ public sealed partial class TaxYearPage : Page
 
         UpdateSummaryDisplay();
         LoadDisposals();
+        LoadWarnings();
+        LoadStaking();
     }
 
     private void UpdateSummaryDisplay()
@@ -93,9 +95,8 @@ public sealed partial class TaxYearPage : Page
         EnsureUserInput().TaxableIncome = income;
 
         await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
-        _mainWindow.RecalculateAndBuildTabs();
+        await _mainWindow.RecalculateAndBuildTabsAsync();
 
-        // Refresh with updated summary
         var updated = _mainWindow.TaxYearSummaries.FirstOrDefault(s => s.TaxYear == _summary.TaxYear);
         if (updated != null)
         {
@@ -112,7 +113,7 @@ public sealed partial class TaxYearPage : Page
         EnsureUserInput().OtherCapitalGains = gains;
 
         await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
-        _mainWindow.RecalculateAndBuildTabs();
+        await _mainWindow.RecalculateAndBuildTabsAsync();
 
         var updated = _mainWindow.TaxYearSummaries.FirstOrDefault(s => s.TaxYear == _summary.TaxYear);
         if (updated != null)
@@ -120,6 +121,43 @@ public sealed partial class TaxYearPage : Page
             _summary = updated;
             UpdateSummaryDisplay();
         }
+    }
+
+    private void LoadWarnings()
+    {
+        if (_summary == null || _summary.Warnings.Count == 0)
+        {
+            WarningsPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        WarningsPanel.Visibility = Visibility.Visible;
+        var errorCount = _summary.Warnings.Count(w => w.Level == WarningLevel.Error);
+        var warnCount = _summary.Warnings.Count(w => w.Level == WarningLevel.Warning);
+        WarningsTitle.Text = $"Data Issues ({errorCount} errors, {warnCount} warnings, {_summary.Warnings.Count - errorCount - warnCount} info)";
+
+        WarningsList.ItemsSource = _summary.Warnings
+            .OrderByDescending(w => w.Level)
+            .ThenBy(w => w.Date)
+            .Select(w => new WarningViewModel(w))
+            .ToList();
+    }
+
+    private void LoadStaking()
+    {
+        if (_summary == null || _summary.StakingRewards.Count == 0)
+        {
+            StakingPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        StakingPanel.Visibility = Visibility.Visible;
+        StakingTotalText.Text = $"Total staking/dividend income: {FormatGbp(_summary.StakingIncome)}";
+
+        StakingList.ItemsSource = _summary.StakingRewards
+            .OrderBy(s => s.Date)
+            .Select(s => new StakingViewModel(s))
+            .ToList();
     }
 
     private TaxYearUserInput EnsureUserInput()
@@ -257,4 +295,36 @@ public class DisposalViewModel
     {
         return amount < 0 ? $"-£{Math.Abs(amount):#,##0.00}" : $"£{amount:#,##0.00}";
     }
+}
+
+public class WarningViewModel
+{
+    private readonly CalculationWarning _warning;
+
+    public WarningViewModel(CalculationWarning warning) => _warning = warning;
+
+    public string LevelText => _warning.Level.ToString().ToUpper();
+    public string Category => _warning.Category;
+    public string DateFormatted => _warning.DateFormatted;
+    public string Message => _warning.Message;
+    public SolidColorBrush LevelColor => _warning.Level switch
+    {
+        WarningLevel.Error => new SolidColorBrush(Colors.Red),
+        WarningLevel.Warning => new SolidColorBrush(Colors.Orange),
+        _ => new SolidColorBrush(Colors.Gray)
+    };
+}
+
+public class StakingViewModel
+{
+    private readonly StakingReward _reward;
+
+    public StakingViewModel(StakingReward reward) => _reward = reward;
+
+    public string DateFormatted => _reward.DateFormatted;
+    public string Asset => _reward.Asset;
+    public string AmountFormatted => _reward.Amount.ToString("0.########");
+    public string GbpFormatted => _reward.GbpValue < 0
+        ? $"-£{Math.Abs(_reward.GbpValue):#,##0.00}"
+        : $"£{_reward.GbpValue:#,##0.00}";
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using CryptoTax2026.Models;
@@ -13,10 +14,11 @@ public sealed partial class MainWindow : Window
 {
     private readonly TradeStorageService _storageService = new();
     private readonly KrakenApiService _krakenService = new();
-    private readonly CgtCalculationService _cgtService = new();
 
-    private List<KrakenTrade> _trades = new();
+    private List<KrakenLedgerEntry> _ledger = new();
+    private List<KrakenTrade> _trades = new(); // kept for export compatibility
     private List<TaxYearSummary> _taxYearSummaries = new();
+    private List<CalculationWarning> _warnings = new();
     private AppSettings _settings = new();
 
     public MainWindow()
@@ -33,41 +35,76 @@ public sealed partial class MainWindow : Window
         _settings = await _storageService.LoadSettingsAsync();
         _krakenService.SetCredentials(_settings.KrakenApiKey, _settings.KrakenApiSecret);
 
-        if (_storageService.HasSavedTrades())
+        if (_storageService.HasSavedLedger())
         {
-            _trades = await _storageService.LoadTradesAsync();
-            RecalculateAndBuildTabs();
+            _ledger = await _storageService.LoadLedgerAsync();
+            await RecalculateAndBuildTabsAsync();
         }
 
-        // Navigate to settings by default
         ContentFrame.Navigate(typeof(SettingsPage), this);
         NavView.SelectedItem = NavView.MenuItems[0];
     }
 
-    public void OnTradesDownloaded(List<KrakenTrade> trades)
+    public async void OnLedgerDownloaded(List<KrakenLedgerEntry> ledger)
     {
-        _trades = trades;
-        RecalculateAndBuildTabs();
+        _ledger = ledger;
+        await RecalculateAndBuildTabsAsync();
     }
 
-    public void RecalculateAndBuildTabs()
+    public async System.Threading.Tasks.Task RecalculateAndBuildTabsAsync(
+        IProgress<(int count, string status)>? progress = null,
+        CancellationToken ct = default)
     {
-        if (_trades.Count == 0) return;
+        if (_ledger.Count == 0) return;
 
-        _taxYearSummaries = _cgtService.CalculateAllTaxYears(_trades, _settings.TaxYearInputs);
+        _warnings = new List<CalculationWarning>();
+
+        // Create FX service and preload rates
+        var fxService = new FxConversionService(_krakenService, _warnings);
+
+        // Gather all currencies we need rates for
+        var currencies = _ledger
+            .Select(e => e.NormalisedAsset)
+            .Where(a => !string.IsNullOrEmpty(a))
+            .Distinct()
+            .ToList();
+
+        var earliest = _ledger.Min(e => e.DateTime);
+
+        progress?.Report((0, "Loading FX rates..."));
+        try
+        {
+            await fxService.PreloadRatesAsync(currencies, earliest, progress, ct);
+        }
+        catch (Exception ex)
+        {
+            _warnings.Add(new CalculationWarning
+            {
+                Level = WarningLevel.Warning,
+                Category = "FX Rate",
+                Message = $"FX rate preload incomplete: {ex.Message}. Some conversions may use fallback rates."
+            });
+        }
+
+        progress?.Report((0, "Calculating capital gains..."));
+
+        var cgtService = new CgtCalculationService(fxService, _warnings);
+        _taxYearSummaries = cgtService.CalculateAllTaxYears(_ledger, _settings.TaxYearInputs);
 
         // Remove old tax year tabs (keep Settings tab at index 0)
         while (NavView.MenuItems.Count > 1)
             NavView.MenuItems.RemoveAt(1);
 
-        // Add a tab for each tax year
         foreach (var summary in _taxYearSummaries.OrderBy(s => s.StartYear))
         {
+            var warningCount = summary.Warnings.Count(w => w.Level is WarningLevel.Warning or WarningLevel.Error);
+            var label = warningCount > 0 ? $"{summary.TaxYear} ({warningCount} issues)" : summary.TaxYear;
+
             var item = new NavigationViewItem
             {
-                Content = summary.TaxYear,
+                Content = label,
                 Tag = summary.TaxYear,
-                Icon = new SymbolIcon(Symbol.Calculator)
+                Icon = new SymbolIcon(warningCount > 0 ? Symbol.Important : Symbol.Calculator)
             };
             NavView.MenuItems.Add(item);
         }
@@ -96,6 +133,8 @@ public sealed partial class MainWindow : Window
     public KrakenApiService KrakenService => _krakenService;
     public TradeStorageService StorageService => _storageService;
     public AppSettings Settings => _settings;
+    public List<KrakenLedgerEntry> Ledger => _ledger;
     public List<KrakenTrade> Trades => _trades;
     public List<TaxYearSummary> TaxYearSummaries => _taxYearSummaries;
+    public List<CalculationWarning> Warnings => _warnings;
 }

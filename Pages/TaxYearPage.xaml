@@ -154,6 +154,84 @@
                 </StackPanel>
             </Border>
 
+            <!-- Warnings / Data Issues -->
+            <Border x:Name="WarningsPanel" Visibility="Collapsed"
+                    Background="{ThemeResource SystemFillColorCautionBackgroundBrush}"
+                    CornerRadius="8" Padding="20" BorderBrush="{ThemeResource SystemFillColorCautionBrush}"
+                    BorderThickness="1">
+                <StackPanel Spacing="8">
+                    <TextBlock x:Name="WarningsTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock Text="These issues were found during calculation. They may affect the accuracy of the results."
+                               TextWrapping="Wrap" Opacity="0.7" />
+                    <ListView x:Name="WarningsList" SelectionMode="None" IsItemClickEnabled="False">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Padding="4,2" ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="60" />
+                                        <ColumnDefinition Width="90" />
+                                        <ColumnDefinition Width="80" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding LevelText}" FontWeight="SemiBold"
+                                               Foreground="{Binding LevelColor}" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Category}" Opacity="0.7" />
+                                    <TextBlock Grid.Column="2" Text="{Binding DateFormatted}" Opacity="0.7" />
+                                    <TextBlock Grid.Column="3" Text="{Binding Message}" TextWrapping="Wrap" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+            </Border>
+
+            <!-- Staking Income -->
+            <Border x:Name="StakingPanel" Visibility="Collapsed"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Staking / Dividend Income" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock Text="Staking rewards are taxed as miscellaneous income (not capital gains). This is separate from CGT."
+                               TextWrapping="Wrap" Opacity="0.7" />
+                    <TextBlock x:Name="StakingTotalText" FontWeight="Bold" FontSize="14" />
+                    <ListView x:Name="StakingList" SelectionMode="None" IsItemClickEnabled="False" MaxHeight="300">
+                        <ListView.HeaderTemplate>
+                            <DataTemplate>
+                                <Grid Padding="8,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100" />
+                                        <ColumnDefinition Width="80" />
+                                        <ColumnDefinition Width="150" />
+                                        <ColumnDefinition Width="120" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Date" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="1" Text="Asset" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="2" Text="Amount" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="3" Text="GBP Value" FontWeight="SemiBold" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.HeaderTemplate>
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Padding="8,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100" />
+                                        <ColumnDefinition Width="80" />
+                                        <ColumnDefinition Width="150" />
+                                        <ColumnDefinition Width="120" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding DateFormatted}" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Asset}" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="2" Text="{Binding AmountFormatted}" />
+                                    <TextBlock Grid.Column="3" Text="{Binding GbpFormatted}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+            </Border>
+
             <!-- Disposals Detail -->
             <TextBlock Text="Individual Disposals" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,8,0,0" />
             <TextBlock Text="Each row is a disposal event matched using HMRC rules (same-day, bed &amp; breakfast 30-day, then Section 104 pool)."

@@ -21,18 +21,25 @@ A Windows desktop application that connects to the Kraken cryptocurrency exchang
 ## What It Does
 
 - Connects to the Kraken API using your API key and secret
-- Downloads your full trade history in batches (respecting API rate limits)
-- Caches trade data locally so you don't need to re-download each time
+- Downloads your **full ledger history** (not just trades) in batches, including trades, staking rewards, deposits, withdrawals, and fees
+- Caches ledger data locally so you don't need to re-download each time
 - Resumes downloads from where it left off
+- **Converts all amounts to GBP** using historical daily exchange rates downloaded from Kraken's public OHLC API
+  - USD, EUR, and other fiat currencies converted at the correct daily rate
+  - **USDT is NOT treated as USD** — it is converted via USDT/USD rate first, then USD/GBP (two-step conversion)
+  - Crypto-to-crypto trades valued using direct GBP pair or via USD pair + USD/GBP
+  - FX rates are cached locally for 24 hours
 - Calculates UK Capital Gains Tax for each tax year using HMRC rules:
   - **Same-day rule** - matches disposals with acquisitions on the same day
   - **Bed & breakfast rule (30-day rule)** - matches disposals with acquisitions within 30 days after
   - **Section 104 pooling** - average cost basis for remaining holdings
   - **Annual exempt amount** - applied per tax year at the correct historical rate
   - **CGT rate banding** - splits gains between basic and higher rate based on your taxable income
+- **Tracks staking rewards** as miscellaneous income (separate from CGT), valued at GBP market rate on the date received
+- **Shows data quality warnings** — flags issues like negative pool quantities, missing FX rates, unmatched ledger entries, and deposits valued at market rate
 - Provides a tab for each tax year where you enter your taxable income and other capital gains
 - Recalculates tax owed instantly when you change inputs
-- Exports to Excel (.xlsx), PDF, and Word (.docx) with optional raw Kraken trade data included
+- Exports to Excel (.xlsx), PDF, and Word (.docx) with optional raw Kraken data included
 
 ## Tax Rates
 
@@ -80,18 +87,22 @@ All data is stored locally on your machine at:
 ```
 
 This includes:
-- `trades.json` - cached trade history
+- `ledger.json` - cached Kraken ledger history
+- `trades.json` - cached trade history (legacy)
 - `settings.json` - your API credentials and tax year inputs
+- `fx_cache/` - cached daily FX rates from Kraken
 
 **Your API credentials are stored in plain text on your local machine. Do not share this folder.**
 
 ## Known Limitations
 
-- Non-GBP trading pairs (e.g. BTC/USD, ETH/USDT) use the quoted cost as an approximate GBP value. Historical FX conversion is not implemented.
-- Crypto-to-crypto trades are treated as simultaneous disposal and acquisition but lack proper GBP valuation at the time of trade.
-- Does not handle transfers between exchanges, airdrops, hard forks, staking rewards, DeFi transactions, or any activity outside Kraken.
+- FX conversion uses daily closing prices from Kraken's OHLC data, not the exact rate at the moment of the trade. This may differ slightly from the actual rate.
+- Crypto deposits from external wallets are valued at market rate on the date received. If you transferred from another exchange where you bought at a different price, the cost basis will be wrong — you would need to adjust manually.
+- Does not handle transfers between exchanges (no way to automatically link deposit on Kraken to purchase on another exchange).
+- Does not handle airdrops, hard forks, or DeFi transactions outside Kraken.
 - Does not carry forward losses from previous tax years.
 - Does not handle the remittance basis or any non-standard tax situations.
+- FX rates for less common altcoins may not be available on Kraken — the app will warn you when this happens.
 - The gov.uk rate scraping may break if HMRC changes their website structure.
 
 ## Tech Stack

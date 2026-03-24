@@ -49,12 +49,12 @@ public class KrakenApiService
     }
 
     /// <summary>
-    /// Tests the API connection by fetching the first page of trades.
+    /// Tests the API connection by fetching the first page of ledger entries.
     /// Returns the raw JSON response for debugging.
     /// </summary>
     public async Task<string> TestConnectionAsync()
     {
-        var path = "/0/private/TradesHistory";
+        var path = "/0/private/Ledgers";
         var nonce = GetNonce().ToString();
         var postBody = $"nonce={nonce}&ofs=0";
         var signature = GenerateSignature(path, nonce, postBody);
@@ -68,6 +68,119 @@ public class KrakenApiService
 
         var response = await _httpClient.SendAsync(request);
         return await response.Content.ReadAsStringAsync();
+    }
+
+    // ========== LEDGER DOWNLOAD ==========
+
+    /// <summary>
+    /// Downloads full ledger from Kraken, resuming from the given timestamp.
+    /// The ledger contains all account activity: trades, staking, deposits, withdrawals, etc.
+    /// </summary>
+    public async Task<List<KrakenLedgerEntry>> DownloadLedgerAsync(
+        double startFromUnixTime = 0,
+        IProgress<(int count, string status)>? progress = null,
+        CancellationToken ct = default)
+    {
+        var allEntries = new List<KrakenLedgerEntry>();
+        int offset = 0;
+        bool hasMore = true;
+
+        var resumeLabel = startFromUnixTime > 0
+            ? $" from {DateTimeOffset.FromUnixTimeSeconds((long)startFromUnixTime):dd MMM yyyy HH:mm}"
+            : "";
+
+        while (hasMore && !ct.IsCancellationRequested)
+        {
+            progress?.Report((allEntries.Count, $"Downloading ledger{resumeLabel} (offset {offset})..."));
+
+            List<KrakenLedgerEntry>? batch = null;
+            for (int attempt = 0; attempt < MaxRetries; attempt++)
+            {
+                try
+                {
+                    batch = await GetLedgerBatchAsync(offset, ct, startFromUnixTime);
+                    break;
+                }
+                catch (Exception ex) when (ex.Message.Contains("EAPI:Rate limit", StringComparison.OrdinalIgnoreCase)
+                                         || ex.Message.Contains("rate limit", StringComparison.OrdinalIgnoreCase))
+                {
+                    var waitSeconds = 10 * (1 << attempt);
+                    progress?.Report((allEntries.Count,
+                        $"Rate limited. Waiting {waitSeconds}s before retry ({attempt + 1}/{MaxRetries})..."));
+                    await Task.Delay(waitSeconds * 1000, ct);
+                }
+            }
+
+            if (batch == null)
+                throw new Exception("Rate limit exceeded after maximum retries. Try again later.");
+
+            if (batch.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allEntries.AddRange(batch);
+                offset += batch.Count;
+
+                if (batch.Count < BatchSize)
+                    hasMore = false;
+            }
+
+            if (hasMore)
+                await Task.Delay(RateLimitDelayMs, ct);
+        }
+
+        progress?.Report((allEntries.Count, $"Download complete. {allEntries.Count} ledger entries found."));
+
+        // Normalise asset names
+        foreach (var entry in allEntries)
+        {
+            entry.NormalisedAsset = KrakenLedgerEntry.NormaliseAssetName(entry.Asset);
+        }
+
+        return allEntries.OrderBy(e => e.Time).ToList();
+    }
+
+    private async Task<List<KrakenLedgerEntry>> GetLedgerBatchAsync(int offset, CancellationToken ct, double startTime = 0)
+    {
+        var path = "/0/private/Ledgers";
+        var nonce = GetNonce().ToString();
+
+        var postBody = startTime > 0
+            ? $"nonce={nonce}&ofs={offset}&start={startTime}"
+            : $"nonce={nonce}&ofs={offset}";
+
+        var signature = GenerateSignature(path, nonce, postBody);
+
+        var request = new HttpRequestMessage(HttpMethod.Post, path)
+        {
+            Content = new StringContent(postBody, Encoding.UTF8, "application/x-www-form-urlencoded")
+        };
+        request.Headers.Add("API-Key", _apiKey);
+        request.Headers.Add("API-Sign", signature);
+
+        var response = await _httpClient.SendAsync(request, ct);
+        var json = await response.Content.ReadAsStringAsync(ct);
+
+        var result = JsonSerializer.Deserialize<KrakenLedgerResponse>(json);
+        if (result == null)
+            throw new Exception("Failed to parse Kraken API response");
+
+        if (result.Error != null && result.Error.Count > 0)
+            throw new Exception($"Kraken API error: {string.Join(", ", result.Error)}");
+
+        if (result.Result?.Ledger == null)
+            return new List<KrakenLedgerEntry>();
+
+        var entries = new List<KrakenLedgerEntry>();
+        foreach (var (ledgerId, entry) in result.Result.Ledger)
+        {
+            entry.LedgerId = ledgerId;
+            entries.Add(entry);
+        }
+
+        return entries;
     }
 
     /// <summary>
@@ -255,7 +368,74 @@ public class KrakenApiService
         trade.BaseAsset = pair;
         trade.QuoteAsset = "GBP";
     }
+
+    // ========== PUBLIC API: OHLC for FX rates ==========
+
+    /// <summary>
+    /// Downloads daily OHLC data from Kraken's public API for a given pair.
+    /// Returns list of (timestamp, open, high, low, close, volume) tuples.
+    /// No API key needed. Rate limited to ~1 req/sec for public endpoints.
+    /// </summary>
+    public async Task<List<OhlcCandle>> GetOhlcDataAsync(string pair, long sinceUnixTime = 0, CancellationToken ct = default)
+    {
+        var url = $"/0/public/OHLC?pair={pair}&interval=1440"; // 1440 = daily
+        if (sinceUnixTime > 0)
+            url += $"&since={sinceUnixTime}";
+
+        var response = await _httpClient.GetAsync(url, ct);
+        var json = await response.Content.ReadAsStringAsync(ct);
+
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        if (root.TryGetProperty("error", out var errors) && errors.GetArrayLength() > 0)
+        {
+            var errMsg = string.Join(", ", errors.EnumerateArray().Select(e => e.GetString()));
+            throw new Exception($"Kraken OHLC error for {pair}: {errMsg}");
+        }
+
+        var candles = new List<OhlcCandle>();
+
+        if (root.TryGetProperty("result", out var result))
+        {
+            foreach (var prop in result.EnumerateObject())
+            {
+                if (prop.Name == "last") continue; // skip the "last" timestamp field
+
+                foreach (var candle in prop.Value.EnumerateArray())
+                {
+                    var arr = candle.EnumerateArray().ToArray();
+                    if (arr.Length >= 5)
+                    {
+                        candles.Add(new OhlcCandle
+                        {
+                            Timestamp = arr[0].GetInt64(),
+                            Open = decimal.Parse(arr[1].GetString() ?? "0", CultureInfo.InvariantCulture),
+                            High = decimal.Parse(arr[2].GetString() ?? "0", CultureInfo.InvariantCulture),
+                            Low = decimal.Parse(arr[3].GetString() ?? "0", CultureInfo.InvariantCulture),
+                            Close = decimal.Parse(arr[4].GetString() ?? "0", CultureInfo.InvariantCulture),
+                        });
+                    }
+                }
+            }
+        }
+
+        return candles.OrderBy(c => c.Timestamp).ToList();
+    }
 }
+
+public class OhlcCandle
+{
+    public long Timestamp { get; set; }
+    public decimal Open { get; set; }
+    public decimal High { get; set; }
+    public decimal Low { get; set; }
+    public decimal Close { get; set; }
+
+    public DateTimeOffset DateTime => DateTimeOffset.FromUnixTimeSeconds(Timestamp);
+}
+
+// ========== Response types ==========
 
 public class KrakenResponse
 {
@@ -270,6 +450,24 @@ public class KrakenTradesResult
 {
     [JsonPropertyName("trades")]
     public Dictionary<string, KrakenTrade>? Trades { get; set; }
+
+    [JsonPropertyName("count")]
+    public int Count { get; set; }
+}
+
+public class KrakenLedgerResponse
+{
+    [JsonPropertyName("error")]
+    public List<string>? Error { get; set; }
+
+    [JsonPropertyName("result")]
+    public KrakenLedgerResult? Result { get; set; }
+}
+
+public class KrakenLedgerResult
+{
+    [JsonPropertyName("ledger")]
+    public Dictionary<string, KrakenLedgerEntry>? Ledger { get; set; }
 
     [JsonPropertyName("count")]
     public int Count { get; set; }

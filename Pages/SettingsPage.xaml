@@ -32,7 +32,7 @@
 
             <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
 
-            <TextBlock Text="Trade Data" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Text="Ledger Data" Style="{StaticResource TitleTextBlockStyle}" />
 
             <StackPanel x:Name="TradeInfoPanel" Spacing="4">
                 <TextBlock x:Name="TradeStatusText" Text="No trades downloaded yet." />
@@ -40,7 +40,7 @@
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" Spacing="12">
-                <Button x:Name="DownloadBtn" Content="Download Trades"
+                <Button x:Name="DownloadBtn" Content="Download Ledger"
                         Style="{StaticResource AccentButtonStyle}"
                         Click="DownloadTrades_Click" />
                 <Button x:Name="ResetBtn" Content="Reset &amp; Re-download All"
@@ -54,7 +54,7 @@
 
             <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
 
-            <TextBlock Text="Trade Summary" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Text="Ledger Summary" Style="{StaticResource TitleTextBlockStyle}" />
 
             <StackPanel x:Name="TradeSummaryPanel" Spacing="4">
                 <TextBlock x:Name="TotalTradesText" Text="" />

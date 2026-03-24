@@ -26,7 +26,7 @@ public sealed partial class SettingsPage : Page
         {
             _mainWindow = mw;
             LoadSettings();
-            UpdateTradeStatus();
+            UpdateLedgerStatus();
         }
     }
 
@@ -39,47 +39,46 @@ public sealed partial class SettingsPage : Page
         DataPathText.Text = _mainWindow.StorageService.GetDataFolderPath();
     }
 
-    private void UpdateTradeStatus()
+    private void UpdateLedgerStatus()
     {
         if (_mainWindow == null) return;
 
-        var fileDate = _mainWindow.StorageService.GetTradesFileDate();
+        var fileDate = _mainWindow.StorageService.GetLedgerFileDate();
         if (fileDate.HasValue)
         {
-            TradeStatusText.Text = $"{_mainWindow.Trades.Count} trades loaded from cache.";
+            TradeStatusText.Text = $"{_mainWindow.Ledger.Count} ledger entries loaded from cache.";
             TradeFileDate.Text = $"Last downloaded: {fileDate.Value:dd MMM yyyy HH:mm}";
-            ResumeInfoText.Text = "Click 'Download Trades' to fetch only new trades since last download.";
+            ResumeInfoText.Text = "Click 'Download Ledger' to fetch only new entries since last download.";
         }
         else
         {
-            TradeStatusText.Text = "No trades downloaded yet.";
+            TradeStatusText.Text = "No ledger data downloaded yet.";
             TradeFileDate.Text = "";
             ResumeInfoText.Text = "";
         }
 
-        if (_mainWindow.Trades.Count > 0)
+        if (_mainWindow.Ledger.Count > 0)
         {
-            var trades = _mainWindow.Trades;
-            TotalTradesText.Text = $"Total trades: {trades.Count}";
+            var ledger = _mainWindow.Ledger;
+            TotalTradesText.Text = $"Total ledger entries: {ledger.Count}";
 
-            var earliest = trades.Min(t => t.DateTime);
-            var latest = trades.Max(t => t.DateTime);
+            var earliest = ledger.Min(e => e.DateTime);
+            var latest = ledger.Max(e => e.DateTime);
             DateRangeText.Text = $"Date range: {earliest:dd MMM yyyy} to {latest:dd MMM yyyy}";
 
-            var taxYears = trades
-                .Select(t => CgtCalculationService.GetTaxYearLabel(t.DateTime))
-                .Distinct()
-                .OrderBy(y => y)
+            var typeCounts = ledger.GroupBy(e => e.Type)
+                .OrderByDescending(g => g.Count())
+                .Select(g => $"{g.Key}: {g.Count()}")
                 .ToList();
-            TaxYearsText.Text = $"Tax years covered: {string.Join(", ", taxYears)}";
+            TaxYearsText.Text = $"Entry types: {string.Join(", ", typeCounts)}";
 
-            var assets = trades
-                .Select(t => t.BaseAsset)
+            var assets = ledger
+                .Select(e => e.NormalisedAsset)
                 .Where(a => !string.IsNullOrEmpty(a))
                 .Distinct()
                 .OrderBy(a => a)
                 .ToList();
-            AssetsText.Text = $"Assets traded: {string.Join(", ", assets)}";
+            AssetsText.Text = $"Assets: {string.Join(", ", assets)}";
         }
         else
         {
@@ -94,7 +93,6 @@ public sealed partial class SettingsPage : Page
     {
         if (_mainWindow == null) return;
 
-        // Save credentials first
         _mainWindow.Settings.KrakenApiKey = ApiKeyBox.Text.Trim();
         _mainWindow.Settings.KrakenApiSecret = ApiSecretBox.Password.Trim();
         _mainWindow.KrakenService.SetCredentials(
@@ -106,8 +104,7 @@ public sealed partial class SettingsPage : Page
         {
             var rawResponse = await _mainWindow.KrakenService.TestConnectionAsync();
 
-            // Show the raw response so user can debug
-            if (rawResponse.Contains("\"error\":[]") || rawResponse.Contains("\"trades\""))
+            if (rawResponse.Contains("\"error\":[]") || rawResponse.Contains("\"ledger\""))
             {
                 InfoMessage.Message = "Connection successful! API key is working.";
                 InfoMessage.Severity = InfoBarSeverity.Success;
@@ -150,17 +147,15 @@ public sealed partial class SettingsPage : Page
 
     private async void DownloadTrades_Click(object sender, RoutedEventArgs e)
     {
-        // Resume from where we left off
-        await DownloadTradesAsync(resume: true);
+        await DownloadLedgerAsync(resume: true);
     }
 
     private async void ResetTrades_Click(object sender, RoutedEventArgs e)
     {
-        // Confirm before wiping
         var dialog = new ContentDialog
         {
-            Title = "Reset Trade Data",
-            Content = "This will delete all cached trades and re-download everything from scratch. Continue?",
+            Title = "Reset Ledger Data",
+            Content = "This will delete all cached ledger data and re-download everything from scratch. Continue?",
             PrimaryButtonText = "Reset & Re-download",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close,
@@ -169,12 +164,12 @@ public sealed partial class SettingsPage : Page
 
         if (await dialog.ShowAsync() == ContentDialogResult.Primary)
         {
-            await _mainWindow!.StorageService.DeleteTradesAsync();
-            await DownloadTradesAsync(resume: false);
+            await _mainWindow!.StorageService.DeleteLedgerAsync();
+            await DownloadLedgerAsync(resume: false);
         }
     }
 
-    private async System.Threading.Tasks.Task DownloadTradesAsync(bool resume)
+    private async System.Threading.Tasks.Task DownloadLedgerAsync(bool resume)
     {
         if (_mainWindow == null) return;
 
@@ -197,14 +192,13 @@ public sealed partial class SettingsPage : Page
 
         try
         {
-            // Determine start time: resume from latest trade or start from zero
             double startTime = 0;
             int existingCount = 0;
             if (resume)
             {
-                startTime = await _mainWindow.StorageService.GetLatestTradeTimeAsync();
+                startTime = await _mainWindow.StorageService.GetLatestLedgerTimeAsync();
                 if (startTime > 0)
-                    existingCount = _mainWindow.Trades.Count;
+                    existingCount = _mainWindow.Ledger.Count;
             }
 
             var progress = new Progress<(int count, string status)>(p =>
@@ -212,40 +206,41 @@ public sealed partial class SettingsPage : Page
                 DownloadStatusText.Text = p.status;
             });
 
-            var newTrades = await _mainWindow.KrakenService.DownloadTradesAsync(startTime, progress, _cts.Token);
+            var newEntries = await _mainWindow.KrakenService.DownloadLedgerAsync(startTime, progress, _cts.Token);
 
-            // Merge with existing or save fresh
-            List<KrakenTrade> allTrades;
+            List<KrakenLedgerEntry> allEntries;
             if (resume && startTime > 0)
             {
-                allTrades = await _mainWindow.StorageService.MergeAndSaveTradesAsync(newTrades);
-                var addedCount = allTrades.Count - existingCount;
+                allEntries = await _mainWindow.StorageService.MergeAndSaveLedgerAsync(newEntries);
+                var addedCount = allEntries.Count - existingCount;
                 InfoMessage.Message = addedCount > 0
-                    ? $"Downloaded {addedCount} new trades. Total: {allTrades.Count}."
-                    : $"No new trades found. Total: {allTrades.Count} trades up to date.";
+                    ? $"Downloaded {addedCount} new ledger entries. Total: {allEntries.Count}."
+                    : $"No new entries found. Total: {allEntries.Count} entries up to date.";
             }
             else
             {
-                await _mainWindow.StorageService.SaveTradesAsync(newTrades);
-                allTrades = newTrades;
-                InfoMessage.Message = $"Downloaded {allTrades.Count} trades from scratch.";
+                await _mainWindow.StorageService.SaveLedgerAsync(newEntries);
+                allEntries = newEntries;
+                InfoMessage.Message = $"Downloaded {allEntries.Count} ledger entries from scratch.";
             }
 
-            _mainWindow.OnTradesDownloaded(allTrades);
-            UpdateTradeStatus();
+            // Now recalculate (this also downloads FX rates)
+            DownloadStatusText.Text = "Calculating gains and loading FX rates...";
+            _mainWindow.OnLedgerDownloaded(allEntries);
+            UpdateLedgerStatus();
 
             InfoMessage.Severity = InfoBarSeverity.Success;
             InfoMessage.IsOpen = true;
         }
         catch (OperationCanceledException)
         {
-            InfoMessage.Message = "Download cancelled. Previously downloaded trades are preserved.";
+            InfoMessage.Message = "Download cancelled. Previously downloaded data is preserved.";
             InfoMessage.Severity = InfoBarSeverity.Informational;
             InfoMessage.IsOpen = true;
         }
         catch (Exception ex)
         {
-            InfoMessage.Message = $"Download failed: {ex.Message}\nPreviously downloaded trades are preserved.";
+            InfoMessage.Message = $"Download failed: {ex.Message}\nPreviously downloaded data is preserved.";
             InfoMessage.Severity = InfoBarSeverity.Error;
             InfoMessage.IsOpen = true;
         }

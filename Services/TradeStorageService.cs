@@ -15,6 +15,7 @@ public class TradeStorageService
         "CryptoTax2026");
 
     private static readonly string TradesFile = Path.Combine(AppDataFolder, "trades.json");
+    private static readonly string LedgerFile = Path.Combine(AppDataFolder, "ledger.json");
     private static readonly string SettingsFile = Path.Combine(AppDataFolder, "settings.json");
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -26,6 +27,60 @@ public class TradeStorageService
     {
         Directory.CreateDirectory(AppDataFolder);
     }
+
+    // ========== LEDGER ==========
+
+    public async Task SaveLedgerAsync(List<KrakenLedgerEntry> entries)
+    {
+        var json = JsonSerializer.Serialize(entries, JsonOptions);
+        await File.WriteAllTextAsync(LedgerFile, json);
+    }
+
+    public async Task<List<KrakenLedgerEntry>> LoadLedgerAsync()
+    {
+        if (!File.Exists(LedgerFile))
+            return new List<KrakenLedgerEntry>();
+
+        var json = await File.ReadAllTextAsync(LedgerFile);
+        return JsonSerializer.Deserialize<List<KrakenLedgerEntry>>(json) ?? new List<KrakenLedgerEntry>();
+    }
+
+    public async Task<List<KrakenLedgerEntry>> MergeAndSaveLedgerAsync(List<KrakenLedgerEntry> newEntries)
+    {
+        var existing = await LoadLedgerAsync();
+        var existingIds = new HashSet<string>(existing.Select(e => e.LedgerId));
+
+        var toAdd = newEntries.Where(e => !existingIds.Contains(e.LedgerId)).ToList();
+        existing.AddRange(toAdd);
+
+        var merged = existing.OrderBy(e => e.Time).ToList();
+        await SaveLedgerAsync(merged);
+        return merged;
+    }
+
+    public async Task<double> GetLatestLedgerTimeAsync()
+    {
+        var entries = await LoadLedgerAsync();
+        if (entries.Count == 0) return 0;
+        return entries.Max(e => e.Time);
+    }
+
+    public async Task DeleteLedgerAsync()
+    {
+        if (File.Exists(LedgerFile))
+            File.Delete(LedgerFile);
+        await Task.CompletedTask;
+    }
+
+    public bool HasSavedLedger() => File.Exists(LedgerFile);
+
+    public DateTime? GetLedgerFileDate()
+    {
+        if (!File.Exists(LedgerFile)) return null;
+        return File.GetLastWriteTime(LedgerFile);
+    }
+
+    // ========== TRADES (legacy, kept for backward compat) ==========
 
     public async Task SaveTradesAsync(List<KrakenTrade> trades)
     {
@@ -42,10 +97,6 @@ public class TradeStorageService
         return JsonSerializer.Deserialize<List<KrakenTrade>>(json) ?? new List<KrakenTrade>();
     }
 
-    /// <summary>
-    /// Merges new trades into existing stored trades, deduplicating by TradeId.
-    /// Returns the combined list.
-    /// </summary>
     public async Task<List<KrakenTrade>> MergeAndSaveTradesAsync(List<KrakenTrade> newTrades)
     {
         var existing = await LoadTradesAsync();
@@ -59,9 +110,6 @@ public class TradeStorageService
         return merged;
     }
 
-    /// <summary>
-    /// Returns the unix timestamp of the latest stored trade, or 0 if none.
-    /// </summary>
     public async Task<double> GetLatestTradeTimeAsync()
     {
         var trades = await LoadTradesAsync();
@@ -83,6 +131,8 @@ public class TradeStorageService
         if (!File.Exists(TradesFile)) return null;
         return File.GetLastWriteTime(TradesFile);
     }
+
+    // ========== SETTINGS ==========
 
     public async Task SaveSettingsAsync(AppSettings settings)
     {
