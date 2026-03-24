@@ -34,6 +34,20 @@ public class ExportService
         var ds = workbook.Worksheets.Add("Disposals");
         WriteDisposalsSheet(ds, summary);
 
+        // Staking income sheet
+        if (summary.StakingRewards.Count > 0)
+        {
+            var ss = workbook.Worksheets.Add("Staking Income");
+            WriteStakingSheet(ss, summary);
+        }
+
+        // Warnings sheet
+        if (summary.Warnings.Count > 0)
+        {
+            var wws = workbook.Worksheets.Add("Warnings");
+            WriteWarningsSheet(wws, summary);
+        }
+
         // Kraken trades sheet
         if (krakenTrades != null && krakenTrades.Count > 0)
         {
@@ -55,6 +69,18 @@ public class ExportService
 
             var ds = workbook.Worksheets.Add($"{summary.TaxYear} Disposals");
             WriteDisposalsSheet(ds, summary);
+
+            if (summary.StakingRewards.Count > 0)
+            {
+                var ss = workbook.Worksheets.Add($"{summary.TaxYear} Staking");
+                WriteStakingSheet(ss, summary);
+            }
+
+            if (summary.Warnings.Count > 0)
+            {
+                var wws = workbook.Worksheets.Add($"{summary.TaxYear} Warnings");
+                WriteWarningsSheet(wws, summary);
+            }
         }
 
         if (krakenTrades != null && krakenTrades.Count > 0)
@@ -124,6 +150,31 @@ public class ExportService
         ws.Cell(row, 2).Style.NumberFormat.Format = "£#,##0.00";
         ws.Cell(row, 2).Style.Font.Bold = true;
         ws.Cell(row, 2).Style.Font.FontSize = 12;
+        row += 2;
+
+        if (summary.StakingRewards.Count > 0)
+        {
+            ws.Cell(row, 1).Value = "STAKING / DIVIDEND INCOME";
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 1).Style.Font.FontSize = 11;
+            row++;
+            AddRow("Total Staking Income", summary.StakingIncome);
+            ws.Cell(row, 1).Value = "(Taxed as miscellaneous income, separate from CGT)";
+            ws.Cell(row, 1).Style.Font.Italic = true;
+            row++;
+        }
+
+        if (summary.Warnings.Count > 0)
+        {
+            row++;
+            ws.Cell(row, 1).Value = $"DATA ISSUES ({summary.Warnings.Count})";
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 1).Style.Font.FontSize = 11;
+            ws.Cell(row, 1).Style.Font.FontColor = XLColor.OrangeRed;
+            row++;
+            ws.Cell(row, 1).Value = "See Warnings sheet for details";
+            ws.Cell(row, 1).Style.Font.Italic = true;
+        }
 
         ws.Columns().AdjustToContents();
     }
@@ -203,6 +254,78 @@ public class ExportService
 
         ws.Columns().AdjustToContents();
         ws.SheetView.FreezeRows(1);
+    }
+
+    private void WriteStakingSheet(IXLWorksheet ws, TaxYearSummary summary)
+    {
+        ws.Cell("A1").Value = $"Staking / Dividend Income - Tax Year {summary.TaxYear}";
+        ws.Cell("A1").Style.Font.Bold = true;
+        ws.Cell("A1").Style.Font.FontSize = 14;
+        ws.Cell("A2").Value = "Taxed as miscellaneous income, separate from Capital Gains Tax";
+        ws.Cell("A2").Style.Font.Italic = true;
+        ws.Cell("A3").Value = $"Total Staking Income: {FormatGbp(summary.StakingIncome)}";
+        ws.Cell("A3").Style.Font.Bold = true;
+
+        var headers = new[] { "Date", "Asset", "Amount", "GBP Value" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            ws.Cell(5, i + 1).Value = headers[i];
+            ws.Cell(5, i + 1).Style.Font.Bold = true;
+            ws.Cell(5, i + 1).Style.Fill.BackgroundColor = XLColor.LightGray;
+        }
+
+        int row = 6;
+        foreach (var s in summary.StakingRewards.OrderBy(s => s.Date))
+        {
+            ws.Cell(row, 1).Value = s.Date.ToString("dd/MM/yyyy");
+            ws.Cell(row, 2).Value = s.Asset;
+            ws.Cell(row, 3).Value = s.Amount;
+            ws.Cell(row, 3).Style.NumberFormat.Format = "0.########";
+            ws.Cell(row, 4).Value = s.GbpValue;
+            ws.Cell(row, 4).Style.NumberFormat.Format = "£#,##0.00";
+            row++;
+        }
+
+        ws.Columns().AdjustToContents();
+        ws.SheetView.FreezeRows(5);
+    }
+
+    private void WriteWarningsSheet(IXLWorksheet ws, TaxYearSummary summary)
+    {
+        ws.Cell("A1").Value = $"Data Issues / Warnings - Tax Year {summary.TaxYear}";
+        ws.Cell("A1").Style.Font.Bold = true;
+        ws.Cell("A1").Style.Font.FontSize = 14;
+        ws.Cell("A2").Value = "These issues were found during calculation and may affect accuracy.";
+        ws.Cell("A2").Style.Font.Italic = true;
+
+        var headers = new[] { "Level", "Category", "Date", "Asset", "Message" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            ws.Cell(4, i + 1).Value = headers[i];
+            ws.Cell(4, i + 1).Style.Font.Bold = true;
+            ws.Cell(4, i + 1).Style.Fill.BackgroundColor = XLColor.LightGray;
+        }
+
+        int row = 5;
+        foreach (var w in summary.Warnings.OrderByDescending(w => w.Level).ThenBy(w => w.Date))
+        {
+            ws.Cell(row, 1).Value = w.Level.ToString().ToUpper();
+            ws.Cell(row, 1).Style.Font.FontColor = w.Level switch
+            {
+                WarningLevel.Error => XLColor.Red,
+                WarningLevel.Warning => XLColor.OrangeRed,
+                _ => XLColor.Gray
+            };
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 2).Value = w.Category;
+            ws.Cell(row, 3).Value = w.DateFormatted;
+            ws.Cell(row, 4).Value = w.Asset ?? "";
+            ws.Cell(row, 5).Value = w.Message;
+            row++;
+        }
+
+        ws.Columns().AdjustToContents();
+        ws.SheetView.FreezeRows(4);
     }
 
     // ========== PDF ==========
@@ -298,6 +421,87 @@ public class ExportService
                                 .Text(d.MatchingRule);
                         }
                     });
+
+                    // Staking income
+                    if (summary.StakingRewards.Count > 0)
+                    {
+                        col.Item().PaddingTop(15).Text("Staking / Dividend Income").FontSize(12).Bold();
+                        col.Item().Text("Taxed as miscellaneous income, separate from CGT.").FontSize(8).Italic();
+                        col.Item().Text($"Total: {FormatGbp(summary.StakingIncome)}").Bold();
+                        col.Item().PaddingTop(5).Table(table =>
+                        {
+                            table.ColumnsDefinition(c =>
+                            {
+                                c.RelativeColumn(2);
+                                c.RelativeColumn(1.2f);
+                                c.RelativeColumn(2);
+                                c.RelativeColumn(2);
+                            });
+
+                            table.Header(h =>
+                            {
+                                h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("Date").Bold();
+                                h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("Asset").Bold();
+                                h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("Amount").Bold();
+                                h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("GBP Value").Bold();
+                            });
+
+                            foreach (var s in summary.StakingRewards.OrderBy(s => s.Date))
+                            {
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2)
+                                    .Text(s.Date.ToString("dd/MM/yyyy"));
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2)
+                                    .Text(s.Asset);
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2)
+                                    .Text(s.Amount.ToString("0.########"));
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2)
+                                    .Text(FormatGbp(s.GbpValue));
+                            }
+                        });
+                    }
+
+                    // Warnings
+                    if (summary.Warnings.Count > 0)
+                    {
+                        col.Item().PaddingTop(15).Text($"Data Issues ({summary.Warnings.Count})").FontSize(12).Bold()
+                            .FontColor(Colors.Orange.Darken2);
+                        col.Item().PaddingTop(5).Table(table =>
+                        {
+                            table.ColumnsDefinition(c =>
+                            {
+                                c.RelativeColumn(1);
+                                c.RelativeColumn(1.2f);
+                                c.RelativeColumn(1.5f);
+                                c.RelativeColumn(5);
+                            });
+
+                            table.Header(h =>
+                            {
+                                h.Cell().Background(Colors.Orange.Lighten4).Padding(3).Text("Level").Bold();
+                                h.Cell().Background(Colors.Orange.Lighten4).Padding(3).Text("Category").Bold();
+                                h.Cell().Background(Colors.Orange.Lighten4).Padding(3).Text("Date").Bold();
+                                h.Cell().Background(Colors.Orange.Lighten4).Padding(3).Text("Message").Bold();
+                            });
+
+                            foreach (var w in summary.Warnings.OrderByDescending(w => w.Level).ThenBy(w => w.Date))
+                            {
+                                var levelColor = w.Level switch
+                                {
+                                    WarningLevel.Error => Colors.Red.Medium,
+                                    WarningLevel.Warning => Colors.Orange.Darken1,
+                                    _ => Colors.Grey.Darken1
+                                };
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2)
+                                    .Text(w.Level.ToString().ToUpper()).FontColor(levelColor).Bold();
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2)
+                                    .Text(w.Category);
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2)
+                                    .Text(w.DateFormatted);
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2)
+                                    .Text(w.Message);
+                            }
+                        });
+                    }
 
                     // Kraken trades
                     if (krakenTrades != null && krakenTrades.Count > 0)
@@ -433,6 +637,48 @@ public class ExportService
             d.MatchingRule
         }).ToArray();
         body.AppendChild(CreateWordTable(disposalHeaders, disposalRows));
+
+        // Staking income
+        if (summary.StakingRewards.Count > 0)
+        {
+            body.AppendChild(new WordDoc.Paragraph());
+            body.AppendChild(CreateWordParagraph("Staking / Dividend Income", true, "24"));
+            body.AppendChild(CreateWordParagraph(
+                "Taxed as miscellaneous income, separate from Capital Gains Tax.", false, "18", true));
+            body.AppendChild(CreateWordParagraph(
+                $"Total Staking Income: {FormatGbp(summary.StakingIncome)}", true, "20"));
+
+            var stakingHeaders = new[] { "Date", "Asset", "Amount", "GBP Value" };
+            var stakingRows = summary.StakingRewards.OrderBy(s => s.Date).Select(s => new[]
+            {
+                s.Date.ToString("dd/MM/yyyy"),
+                s.Asset,
+                s.Amount.ToString("0.########"),
+                FormatGbp(s.GbpValue)
+            }).ToArray();
+            body.AppendChild(CreateWordTable(stakingHeaders, stakingRows));
+        }
+
+        // Warnings
+        if (summary.Warnings.Count > 0)
+        {
+            body.AppendChild(new WordDoc.Paragraph());
+            body.AppendChild(CreateWordParagraph($"Data Issues ({summary.Warnings.Count})", true, "24"));
+            body.AppendChild(CreateWordParagraph(
+                "These issues were found during calculation and may affect the accuracy of results.", false, "18", true));
+
+            var warningHeaders = new[] { "Level", "Category", "Date", "Message" };
+            var warningRows = summary.Warnings
+                .OrderByDescending(w => w.Level).ThenBy(w => w.Date)
+                .Select(w => new[]
+                {
+                    w.Level.ToString().ToUpper(),
+                    w.Category,
+                    w.DateFormatted,
+                    w.Message
+                }).ToArray();
+            body.AppendChild(CreateWordTable(warningHeaders, warningRows));
+        }
 
         if (krakenTrades != null && krakenTrades.Count > 0)
         {

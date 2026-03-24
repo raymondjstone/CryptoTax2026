@@ -34,6 +34,7 @@ namespace CryptoTax2026
         /// </summary>
         public App()
         {
+            Microsoft.Windows.ApplicationModel.WindowsAppRuntime.DeploymentManager.Initialize();
             InitializeComponent();
         }
 

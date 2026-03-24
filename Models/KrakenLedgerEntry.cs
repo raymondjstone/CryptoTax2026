@@ -62,15 +62,24 @@ public class KrakenLedgerEntry
             ["ZCAD"] = "CAD", ["ZAUD"] = "AUD",
             // Staked variants
             ["ETH2"] = "ETH", ["ETH2.S"] = "ETH",
-            // Common staked assets map to their base
         };
 
         if (map.TryGetValue(asset, out var mapped))
             return mapped;
 
-        // Handle staked assets like "DOT.S" -> "DOT", "ADA.S" -> "ADA"
-        if (asset.EndsWith(".S", StringComparison.OrdinalIgnoreCase))
-            return asset[..^2];
+        // Handle Kraken suffixes for staking/bonding/margin/parachain variants:
+        // .S = staked, .F = flex staking, .B = bonded staking, .M = margin, .P = parachain
+        // e.g. "DOT.S" -> "DOT", "ETH.F" -> "ETH", "DOT.B" -> "DOT", "KSM.P" -> "KSM"
+        if (asset.Length > 2 && asset[^2] == '.')
+        {
+            var suffix = char.ToUpperInvariant(asset[^1]);
+            if (suffix is 'S' or 'F' or 'B' or 'M' or 'P')
+            {
+                var baseAsset = asset[..^2];
+                // Recursively normalise in case the base also needs mapping (e.g., "XETH.F")
+                return NormaliseAssetName(baseAsset);
+            }
+        }
 
         return asset;
     }

@@ -9,7 +9,8 @@
       "Bash(ls:*)",
       "WebSearch",
       "WebFetch(domain:support.kraken.com)",
-      "WebFetch(domain:docs.kraken.com)"
+      "WebFetch(domain:docs.kraken.com)",
+      "Bash(dotnet test:*)"
     ]
   }
 }

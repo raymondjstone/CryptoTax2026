@@ -23,6 +23,26 @@ public class CgtCalculationService
     /// The ledger gives us exact amounts per asset per event, grouped by refid for trades.
     /// Staking rewards are tracked as miscellaneous income, not capital gains.
     /// </summary>
+    // Ledger types that represent internal balance moves, NOT taxable events.
+    // Transfers between spot and staking wallets are just repositioning — not disposals.
+    private static readonly HashSet<string> NonTaxableTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "transfer",   // spot↔staking, spot↔futures, internal moves
+        "margin",     // margin position adjustments (not a disposal)
+        "rollover",   // futures rollover
+        "settled",    // settled margin position
+        "reserve",    // reserves held by Kraken
+        "conversion", // Kraken internal conversions (e.g., ETH2→ETH unstaking)
+        "creator_fee" // NFT creator fees
+    };
+
+    // Ledger subtypes that are staking-related internal moves (not taxable)
+    private static readonly HashSet<string> StakingTransferSubtypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "spotfromstaking", "stakingfromspot", "spottostaking", "stakingtospot",
+        "spotfromfutures", "futuresfromspot", "spottofutures", "futurestospot"
+    };
+
     public List<TaxYearSummary> CalculateAllTaxYears(
         List<KrakenLedgerEntry> ledger,
         Dictionary<string, TaxYearUserInput> userInputs)
@@ -30,9 +50,9 @@ public class CgtCalculationService
         // Build trade events from ledger entries
         var events = BuildEventsFromLedger(ledger);
 
-        // Separate out staking income
+        // Separate out staking/reward income (staking, dividend, reward types with positive amount)
         var stakingEntries = ledger
-            .Where(e => e.Type is "staking" or "dividend" && e.Amount > 0)
+            .Where(e => e.Type is "staking" or "dividend" or "reward" && e.Amount > 0)
             .ToList();
 
         // Calculate disposals using HMRC rules
@@ -48,8 +68,10 @@ public class CgtCalculationService
 
         // Group ledger entries by refid — a trade will have 2+ entries with the same refid
         // (e.g., -0.5 ETH and +500 GBP for selling ETH)
+        // Exclude non-taxable types (transfers, margin, rollover etc.)
         var tradeEntries = ledger
             .Where(e => e.Type == "trade")
+            .Where(e => !StakingTransferSubtypes.Contains(e.SubType))
             .GroupBy(e => e.RefId)
             .ToList();
 
@@ -231,7 +253,9 @@ public class CgtCalculationService
 
         // Deposits of crypto = acquisition at GBP value on date received
         // (we don't know the original cost, so we use market value — user should adjust if known)
-        foreach (var dep in ledger.Where(e => e.Type == "deposit" && e.Amount > 0 && !e.IsFiat))
+        // Skip fiat deposits, and skip transfers/internal moves that look like deposits
+        foreach (var dep in ledger.Where(e => e.Type == "deposit" && e.Amount > 0 && !e.IsFiat
+                                              && !StakingTransferSubtypes.Contains(e.SubType)))
         {
             var gbpValue = _fxService.GetGbpValueOfAsset(dep.NormalisedAsset, dep.Amount, dep.DateTime);
             events.Add(new CgtEvent
@@ -259,7 +283,8 @@ public class CgtCalculationService
 
         // Staking rewards = acquisition at GBP value on date received
         // (taxed as income, but also establishes cost basis for future disposal)
-        foreach (var stake in ledger.Where(e => e.Type is "staking" or "dividend" && e.Amount > 0))
+        // Includes staking, dividend, and reward types
+        foreach (var stake in ledger.Where(e => e.Type is "staking" or "dividend" or "reward" && e.Amount > 0))
         {
             var gbpValue = _fxService.GetGbpValueOfAsset(stake.NormalisedAsset, stake.Amount, stake.DateTime);
             events.Add(new CgtEvent

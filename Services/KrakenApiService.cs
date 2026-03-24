@@ -376,9 +376,9 @@ public class KrakenApiService
     /// Returns list of (timestamp, open, high, low, close, volume) tuples.
     /// No API key needed. Rate limited to ~1 req/sec for public endpoints.
     /// </summary>
-    public async Task<List<OhlcCandle>> GetOhlcDataAsync(string pair, long sinceUnixTime = 0, CancellationToken ct = default)
+    public async Task<List<OhlcCandle>> GetOhlcDataAsync(string pair, long sinceUnixTime = 0, CancellationToken ct = default, int interval = 240)
     {
-        var url = $"/0/public/OHLC?pair={pair}&interval=1440"; // 1440 = daily
+        var url = $"/0/public/OHLC?pair={pair}&interval={interval}"; // 240 = 4-hourly by default
         if (sinceUnixTime > 0)
             url += $"&since={sinceUnixTime}";
 
