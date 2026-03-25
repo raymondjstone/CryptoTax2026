@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="CryptoTax2026.Pages.FxRatesPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <ScrollViewer Padding="0,0,20,0">
+        <StackPanel Spacing="16" MaxWidth="1200" HorizontalAlignment="Left">
+
+            <TextBlock Text="FX Rate Cache" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock x:Name="CachePathText" Opacity="0.7" />
+
+            <TextBlock x:Name="SummaryText" Margin="0,4,0,0" />
+
+            <!-- Rates table -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="16"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1">
+                <StackPanel>
+                    <!-- Header -->
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="180" />
+                            <ColumnDefinition Width="90" />
+                            <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="70" />
+                            <ColumnDefinition Width="180" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Pair" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="1" Text="Points" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="2" Text="Earliest" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="3" Text="Latest" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="4" Text="Latest Rate" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="5" Text="Cached" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="6" Text="Source" FontWeight="SemiBold" />
+                    </Grid>
+                    <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,0,0,4" />
+
+                    <ListView x:Name="RatesListView"
+                              SelectionMode="None"
+                              IsItemClickEnabled="False">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Padding="0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="180" />
+                                        <ColumnDefinition Width="90" />
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="120" />
+                                        <ColumnDefinition Width="70" />
+                                        <ColumnDefinition Width="180" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding PairName}" />
+                                    <TextBlock Grid.Column="1" Text="{Binding DataPointsFormatted}" />
+                                    <TextBlock Grid.Column="2" Text="{Binding EarliestFormatted}" />
+                                    <TextBlock Grid.Column="3" Text="{Binding LatestFormatted}" />
+                                    <TextBlock Grid.Column="4" Text="{Binding RateFormatted}" />
+                                    <TextBlock Grid.Column="5" Text="{Binding OnDiskLabel}" />
+                                    <TextBlock Grid.Column="6" Text="{Binding DataSource}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>

@@ -48,6 +48,13 @@ public class ExportService
             WriteWarningsSheet(wws, summary);
         }
 
+        // Balances sheet
+        if (summary.StartOfYearBalances.Balances.Count > 0 || summary.EndOfYearBalances.Balances.Count > 0)
+        {
+            var bs = workbook.Worksheets.Add("Balances");
+            WriteBalancesSheet(bs, summary);
+        }
+
         // Kraken trades sheet
         if (krakenTrades != null && krakenTrades.Count > 0)
         {
@@ -80,6 +87,12 @@ public class ExportService
             {
                 var wws = workbook.Worksheets.Add($"{summary.TaxYear} Warnings");
                 WriteWarningsSheet(wws, summary);
+            }
+
+            if (summary.StartOfYearBalances.Balances.Count > 0 || summary.EndOfYearBalances.Balances.Count > 0)
+            {
+                var bs = workbook.Worksheets.Add($"{summary.TaxYear} Balances");
+                WriteBalancesSheet(bs, summary);
             }
         }
 
@@ -151,6 +164,16 @@ public class ExportService
         ws.Cell(row, 2).Style.Font.Bold = true;
         ws.Cell(row, 2).Style.Font.FontSize = 12;
         row += 2;
+
+        ws.Cell(row, 1).Value = "PORTFOLIO BALANCES";
+        ws.Cell(row, 1).Style.Font.Bold = true;
+        ws.Cell(row, 1).Style.Font.FontSize = 11;
+        row++;
+        AddRow("Opening Portfolio Value", summary.StartOfYearBalances.TotalGbpValue);
+        AddRow("Closing Portfolio Value", summary.EndOfYearBalances.TotalGbpValue);
+        var portfolioChange = summary.EndOfYearBalances.TotalGbpValue - summary.StartOfYearBalances.TotalGbpValue;
+        AddRow("Portfolio Change", portfolioChange);
+        row++;
 
         if (summary.StakingRewards.Count > 0)
         {
@@ -328,6 +351,160 @@ public class ExportService
         ws.SheetView.FreezeRows(4);
     }
 
+    private void WriteBalancesSheet(IXLWorksheet ws, TaxYearSummary summary)
+    {
+        ws.Cell("A1").Value = $"Crypto Portfolio Balances - Tax Year {summary.TaxYear}";
+        ws.Cell("A1").Style.Font.Bold = true;
+        ws.Cell("A1").Style.Font.FontSize = 14;
+
+        int row = 3;
+
+        void WriteSnapshot(BalanceSnapshot snapshot)
+        {
+            ws.Cell(row, 1).Value = snapshot.Label;
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 1).Style.Font.FontSize = 11;
+            row++;
+
+            ws.Cell(row, 1).Value = $"Date: {snapshot.Date:dd/MM/yyyy}";
+            ws.Cell(row, 1).Style.Font.Italic = true;
+            row++;
+
+            var headers = new[] { "Asset", "Quantity", "GBP Value" };
+            for (int i = 0; i < headers.Length; i++)
+            {
+                ws.Cell(row, i + 1).Value = headers[i];
+                ws.Cell(row, i + 1).Style.Font.Bold = true;
+                ws.Cell(row, i + 1).Style.Fill.BackgroundColor = XLColor.LightGray;
+            }
+            row++;
+
+            foreach (var b in snapshot.Balances)
+            {
+                ws.Cell(row, 1).Value = b.Asset;
+                ws.Cell(row, 2).Value = b.Quantity;
+                ws.Cell(row, 2).Style.NumberFormat.Format = "0.########";
+                ws.Cell(row, 3).Value = b.GbpValue;
+                ws.Cell(row, 3).Style.NumberFormat.Format = "£#,##0.00";
+                row++;
+            }
+
+            // Total row
+            ws.Cell(row, 1).Value = "TOTAL";
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 3).Value = snapshot.TotalGbpValue;
+            ws.Cell(row, 3).Style.NumberFormat.Format = "£#,##0.00";
+            ws.Cell(row, 3).Style.Font.Bold = true;
+            row += 2;
+        }
+
+        WriteSnapshot(summary.StartOfYearBalances);
+        WriteSnapshot(summary.EndOfYearBalances);
+
+        ws.Columns().AdjustToContents();
+    }
+
+    public void ExportPnlSummaryToExcel(string filePath, List<TaxYearSummary> summaries)
+    {
+        using var workbook = new XLWorkbook();
+
+        // Overview sheet with all years side by side
+        var ws = workbook.Worksheets.Add("P&L Summary");
+        ws.Cell("A1").Value = "P&L Summary - Year over Year";
+        ws.Cell("A1").Style.Font.Bold = true;
+        ws.Cell("A1").Style.Font.FontSize = 14;
+
+        var ordered = summaries.OrderBy(s => s.StartYear).ToList();
+
+        // Headers
+        int col = 2;
+        foreach (var s in ordered)
+        {
+            ws.Cell(3, col).Value = s.TaxYear;
+            ws.Cell(3, col).Style.Font.Bold = true;
+            ws.Cell(3, col).Style.Fill.BackgroundColor = XLColor.LightGray;
+            col++;
+        }
+
+        // Row labels and data
+        var rows = new (string Label, Func<TaxYearSummary, decimal> Value, string Format)[]
+        {
+            ("Opening Portfolio Value", s => s.StartOfYearBalances.TotalGbpValue, "£#,##0.00"),
+            ("Total Disposal Proceeds", s => s.TotalDisposalProceeds, "£#,##0.00"),
+            ("Total Allowable Costs", s => s.TotalAllowableCosts, "£#,##0.00"),
+            ("Total Gains", s => s.TotalGains, "£#,##0.00"),
+            ("Total Losses", s => s.TotalLosses, "£#,##0.00"),
+            ("Net Gain/Loss", s => s.NetGainOrLoss, "£#,##0.00"),
+            ("Staking / Dividend Income", s => s.StakingIncome, "£#,##0.00"),
+            ("Annual Exempt Amount", s => s.AnnualExemptAmount, "£#,##0.00"),
+            ("Taxable Gain", s => s.TaxableGain, "£#,##0.00"),
+            ("Capital Gains Tax Due", s => s.CgtDue, "£#,##0.00"),
+            ("Closing Portfolio Value", s => s.EndOfYearBalances.TotalGbpValue, "£#,##0.00"),
+        };
+
+        int dataRow = 4;
+        foreach (var (label, getValue, format) in rows)
+        {
+            ws.Cell(dataRow, 1).Value = label;
+            ws.Cell(dataRow, 1).Style.Font.Bold = true;
+            col = 2;
+            foreach (var s in ordered)
+            {
+                var val = getValue(s);
+                ws.Cell(dataRow, col).Value = val;
+                ws.Cell(dataRow, col).Style.NumberFormat.Format = format;
+                if (label.Contains("Loss") && val < 0)
+                    ws.Cell(dataRow, col).Style.Font.FontColor = XLColor.Red;
+                if (label.Contains("Gain") && val > 0)
+                    ws.Cell(dataRow, col).Style.Font.FontColor = XLColor.Green;
+                col++;
+            }
+            dataRow++;
+        }
+
+        // Portfolio change row
+        ws.Cell(dataRow, 1).Value = "Portfolio Change (Year)";
+        ws.Cell(dataRow, 1).Style.Font.Bold = true;
+        col = 2;
+        foreach (var s in ordered)
+        {
+            var change = s.EndOfYearBalances.TotalGbpValue - s.StartOfYearBalances.TotalGbpValue;
+            ws.Cell(dataRow, col).Value = change;
+            ws.Cell(dataRow, col).Style.NumberFormat.Format = "£#,##0.00";
+            ws.Cell(dataRow, col).Style.Font.FontColor = change >= 0 ? XLColor.Green : XLColor.Red;
+            col++;
+        }
+        dataRow++;
+
+        ws.Cell(dataRow, 1).Value = "Portfolio Change (%)";
+        ws.Cell(dataRow, 1).Style.Font.Bold = true;
+        col = 2;
+        foreach (var s in ordered)
+        {
+            var opening = s.StartOfYearBalances.TotalGbpValue;
+            var change = s.EndOfYearBalances.TotalGbpValue - opening;
+            var pct = opening != 0 ? change / opening : 0m;
+            ws.Cell(dataRow, col).Value = pct;
+            ws.Cell(dataRow, col).Style.NumberFormat.Format = "0.0%";
+            ws.Cell(dataRow, col).Style.Font.FontColor = pct >= 0 ? XLColor.Green : XLColor.Red;
+            col++;
+        }
+
+        ws.Columns().AdjustToContents();
+
+        // Per-year balance sheets
+        foreach (var s in ordered)
+        {
+            if (s.StartOfYearBalances.Balances.Count > 0 || s.EndOfYearBalances.Balances.Count > 0)
+            {
+                var bs = workbook.Worksheets.Add($"{s.TaxYear} Balances");
+                WriteBalancesSheet(bs, s);
+            }
+        }
+
+        workbook.SaveAs(filePath);
+    }
+
     // ========== PDF ==========
 
     public void ExportToPdf(string filePath, TaxYearSummary summary, List<KrakenTrade>? krakenTrades = null)
@@ -374,6 +551,14 @@ public class ExportService
                         AddPdfRow(table, $"CGT Rates: {summary.BasicRateCgt:P0} / {summary.HigherRateCgt:P0}", "");
                         AddPdfRow(table, "CAPITAL GAINS TAX DUE", FormatGbp(summary.CgtDue), true);
                     });
+
+                    // Balance snapshots
+                    if (summary.StartOfYearBalances.Balances.Count > 0 || summary.EndOfYearBalances.Balances.Count > 0)
+                    {
+                        col.Item().PaddingTop(15).Text("Portfolio Balances").FontSize(12).Bold();
+                        WritePdfBalanceSnapshot(col, summary.StartOfYearBalances);
+                        WritePdfBalanceSnapshot(col, summary.EndOfYearBalances);
+                    }
 
                     // Disposals table
                     col.Item().PaddingTop(15).Text("Disposals").FontSize(12).Bold();
@@ -576,6 +761,136 @@ public class ExportService
         document.GeneratePdf(filePath);
     }
 
+    private void WritePdfBalanceSnapshot(ColumnDescriptor col, BalanceSnapshot snapshot)
+    {
+        if (snapshot.Balances.Count == 0) return;
+
+        col.Item().PaddingTop(8).Text($"{snapshot.Label} ({snapshot.Date:dd/MM/yyyy})").FontSize(10).Bold();
+        col.Item().Text($"Total: {FormatGbp(snapshot.TotalGbpValue)}").Bold();
+        col.Item().PaddingTop(3).Table(table =>
+        {
+            table.ColumnsDefinition(c =>
+            {
+                c.RelativeColumn(1.5f);
+                c.RelativeColumn(2.5f);
+                c.RelativeColumn(2);
+            });
+
+            table.Header(h =>
+            {
+                h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("Asset").Bold();
+                h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("Quantity").Bold();
+                h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("GBP Value").Bold();
+            });
+
+            foreach (var b in snapshot.Balances)
+            {
+                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2).Text(b.Asset);
+                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2)
+                    .Text(b.Quantity.ToString("0.########"));
+                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2)
+                    .Text(FormatGbp(b.GbpValue));
+            }
+        });
+    }
+
+    public void ExportPnlSummaryToPdf(string filePath, List<TaxYearSummary> summaries)
+    {
+        var ordered = summaries.OrderBy(s => s.StartYear).ToList();
+
+        var document = Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(30);
+                page.DefaultTextStyle(x => x.FontSize(9));
+
+                page.Header().Column(col =>
+                {
+                    col.Item().Text("P&L Summary - Year over Year").FontSize(16).Bold();
+                    col.Item().PaddingBottom(10).LineHorizontal(1);
+                });
+
+                page.Content().Column(col =>
+                {
+                    foreach (var summary in ordered)
+                    {
+                        var prev = ordered.IndexOf(summary) > 0 ? ordered[ordered.IndexOf(summary) - 1] : null;
+
+                        col.Item().PaddingTop(10).Text($"Tax Year {summary.TaxYear}").FontSize(13).Bold();
+                        col.Item().Text($"6 April {summary.StartYear} to 5 April {summary.StartYear + 1}")
+                            .FontSize(9).Italic();
+
+                        col.Item().PaddingTop(5).Table(table =>
+                        {
+                            table.ColumnsDefinition(c =>
+                            {
+                                c.RelativeColumn(3);
+                                c.RelativeColumn(2);
+                                if (prev != null) c.RelativeColumn(2);
+                            });
+
+                            // Header
+                            table.Header(h =>
+                            {
+                                h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("").Bold();
+                                h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("Current").Bold();
+                                if (prev != null)
+                                    h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("Previous").Bold();
+                            });
+
+                            void PnlRow(string label, decimal current, decimal? previous)
+                            {
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2).Text(label);
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2)
+                                    .AlignRight().Text(FormatGbp(current));
+                                if (prev != null)
+                                    table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2)
+                                        .AlignRight().Text(previous.HasValue ? FormatGbp(previous.Value) : "");
+                            }
+
+                            PnlRow("Opening Portfolio", summary.StartOfYearBalances.TotalGbpValue,
+                                prev?.StartOfYearBalances.TotalGbpValue);
+                            PnlRow("Disposal Proceeds", summary.TotalDisposalProceeds, prev?.TotalDisposalProceeds);
+                            PnlRow("Allowable Costs", summary.TotalAllowableCosts, prev?.TotalAllowableCosts);
+                            PnlRow("Total Gains", summary.TotalGains, prev?.TotalGains);
+                            PnlRow("Total Losses", summary.TotalLosses, prev?.TotalLosses);
+                            PnlRow("Net Gain/Loss", summary.NetGainOrLoss, prev?.NetGainOrLoss);
+                            PnlRow("Staking Income", summary.StakingIncome, prev?.StakingIncome);
+                            PnlRow("CGT Due", summary.CgtDue, prev?.CgtDue);
+                            PnlRow("Closing Portfolio", summary.EndOfYearBalances.TotalGbpValue,
+                                prev?.EndOfYearBalances.TotalGbpValue);
+
+                            var change = summary.EndOfYearBalances.TotalGbpValue - summary.StartOfYearBalances.TotalGbpValue;
+                            var pct = summary.StartOfYearBalances.TotalGbpValue != 0
+                                ? (change / summary.StartOfYearBalances.TotalGbpValue) * 100m : 0m;
+
+                            table.Cell().Padding(2).Text("Portfolio Change").Bold();
+                            table.Cell().Padding(2).AlignRight()
+                                .Text($"{FormatGbp(change)} ({pct:+0.0;-0.0;0.0}%)").Bold()
+                                .FontColor(change >= 0 ? Colors.Green.Medium : Colors.Red.Medium);
+                            if (prev != null)
+                                table.Cell().Padding(2).Text("");
+                        });
+                    }
+                });
+
+                page.Footer().AlignCenter().Text(t =>
+                {
+                    t.Span("Generated by CryptoTax2026 on ");
+                    t.Span(DateTime.Now.ToString("dd MMM yyyy HH:mm"));
+                    t.Span(" | Page ");
+                    t.CurrentPageNumber();
+                    t.Span(" of ");
+                    t.TotalPages();
+                });
+            });
+        });
+
+        document.GeneratePdf(filePath);
+    }
+
     private void AddPdfRow(TableDescriptor table, string label, string value, bool bold = false)
     {
         if (bold)
@@ -624,6 +939,16 @@ public class ExportService
         body.AppendChild(summaryTable);
         body.AppendChild(new WordDoc.Paragraph());
 
+        // Balance snapshots
+        if (summary.StartOfYearBalances.Balances.Count > 0 || summary.EndOfYearBalances.Balances.Count > 0)
+        {
+            body.AppendChild(new WordDoc.Paragraph());
+            body.AppendChild(CreateWordParagraph("Portfolio Balances", true, "24"));
+            WriteWordBalanceSnapshot(body, summary.StartOfYearBalances);
+            WriteWordBalanceSnapshot(body, summary.EndOfYearBalances);
+        }
+
+        body.AppendChild(new WordDoc.Paragraph());
         body.AppendChild(CreateWordParagraph("Disposals", true, "24"));
         var disposalHeaders = new[] { "Date", "Asset", "Qty", "Proceeds", "Cost", "Gain/Loss", "Rule" };
         var disposalRows = summary.Disposals.OrderBy(d => d.Date).Select(d => new[]
@@ -709,6 +1034,25 @@ public class ExportService
         body.AppendChild(new WordDoc.Paragraph());
         body.AppendChild(CreateWordParagraph(
             $"Generated by CryptoTax2026 on {DateTime.Now:dd MMM yyyy HH:mm}", false, "16", true));
+    }
+
+    private void WriteWordBalanceSnapshot(WordDoc.Body body, BalanceSnapshot snapshot)
+    {
+        if (snapshot.Balances.Count == 0) return;
+
+        body.AppendChild(CreateWordParagraph(
+            $"{snapshot.Label} ({snapshot.Date:dd/MM/yyyy})", true, "20"));
+        body.AppendChild(CreateWordParagraph(
+            $"Total: {FormatGbp(snapshot.TotalGbpValue)}", true, "18"));
+
+        var headers = new[] { "Asset", "Quantity", "GBP Value" };
+        var rows = snapshot.Balances.Select(b => new[]
+        {
+            b.Asset,
+            b.Quantity.ToString("0.########"),
+            FormatGbp(b.GbpValue)
+        }).ToArray();
+        body.AppendChild(CreateWordTable(headers, rows));
     }
 
     private WordDoc.Paragraph CreateWordParagraph(string text, bool bold, string fontSize, bool italic = false)

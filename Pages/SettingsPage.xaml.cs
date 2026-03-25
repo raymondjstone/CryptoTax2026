@@ -27,6 +27,7 @@ public sealed partial class SettingsPage : Page
             _mainWindow = mw;
             LoadSettings();
             UpdateLedgerStatus();
+            UpdateFxStatus();
         }
     }
 
@@ -86,6 +87,27 @@ public sealed partial class SettingsPage : Page
             DateRangeText.Text = "";
             TaxYearsText.Text = "";
             AssetsText.Text = "";
+        }
+    }
+
+    private void UpdateFxStatus()
+    {
+        if (_mainWindow?.FxService == null)
+        {
+            FxStatusText.Text = "No FX rates loaded.";
+            return;
+        }
+
+        var stats = _mainWindow.FxService.GetCacheStats();
+        if (stats.Count == 0)
+        {
+            FxStatusText.Text = "No FX rates loaded.";
+        }
+        else
+        {
+            var totalPoints = stats.Sum(s => s.DataPoints);
+            var onDisk = stats.Count(s => s.OnDisk);
+            FxStatusText.Text = $"{stats.Count} FX pairs loaded ({totalPoints:#,##0} data points, {onDisk} cached to disk).";
         }
     }
 
@@ -182,8 +204,7 @@ public sealed partial class SettingsPage : Page
             return;
         }
 
-        DownloadBtn.IsEnabled = false;
-        ResetBtn.IsEnabled = false;
+        SetButtonsEnabled(false);
         DownloadProgress.Visibility = Visibility.Visible;
         DownloadProgress.IsIndeterminate = true;
         DownloadStatusText.Visibility = Visibility.Visible;
@@ -224,13 +245,17 @@ public sealed partial class SettingsPage : Page
                 InfoMessage.Message = $"Downloaded {allEntries.Count} ledger entries from scratch.";
             }
 
-            // Now recalculate (this also downloads FX rates)
-            DownloadStatusText.Text = "Calculating gains and loading FX rates...";
-            _mainWindow.OnLedgerDownloaded(allEntries);
+            _mainWindow.SetLedger(allEntries);
             UpdateLedgerStatus();
 
             InfoMessage.Severity = InfoBarSeverity.Success;
             InfoMessage.IsOpen = true;
+
+            // Prompt to download FX rates
+            if (allEntries.Count > 0)
+            {
+                InfoMessage.Message += " Now click 'Download FX Rates' to load exchange rate data.";
+            }
         }
         catch (OperationCanceledException)
         {
@@ -246,11 +271,81 @@ public sealed partial class SettingsPage : Page
         }
         finally
         {
-            DownloadBtn.IsEnabled = true;
-            ResetBtn.IsEnabled = true;
+            SetButtonsEnabled(true);
             DownloadProgress.Visibility = Visibility.Collapsed;
             DownloadProgress.IsIndeterminate = false;
             DownloadStatusText.Visibility = Visibility.Collapsed;
         }
+    }
+
+    // ========== FX RATE DOWNLOAD ==========
+
+    private async void DownloadFxRates_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mainWindow == null) return;
+
+        if (_mainWindow.Ledger.Count == 0)
+        {
+            InfoMessage.Message = "Download ledger data first before loading FX rates.";
+            InfoMessage.Severity = InfoBarSeverity.Warning;
+            InfoMessage.IsOpen = true;
+            return;
+        }
+
+        SetButtonsEnabled(false);
+        FxProgress.Visibility = Visibility.Visible;
+        FxProgress.IsIndeterminate = true;
+        FxProgressText.Visibility = Visibility.Visible;
+
+        _cts = new CancellationTokenSource();
+
+        try
+        {
+            var progress = new Progress<(int count, string status)>(p =>
+            {
+                FxProgressText.Text = p.status;
+            });
+
+            // This creates the FxConversionService, downloads ALL needed rates, then recalculates
+            FxProgressText.Text = "Preparing FX rate download...";
+            await _mainWindow.DownloadFxRatesAndRecalculateAsync(progress, _cts.Token);
+
+            UpdateFxStatus();
+            UpdateLedgerStatus();
+
+            var stats = _mainWindow.FxService?.GetCacheStats();
+            var pairCount = stats?.Count ?? 0;
+            var pointCount = stats?.Sum(s => s.DataPoints) ?? 0;
+
+            InfoMessage.Message = $"FX rates loaded: {pairCount} pairs, {pointCount:#,##0} data points. Tax calculations updated.";
+            InfoMessage.Severity = InfoBarSeverity.Success;
+            InfoMessage.IsOpen = true;
+        }
+        catch (OperationCanceledException)
+        {
+            InfoMessage.Message = "FX rate download cancelled.";
+            InfoMessage.Severity = InfoBarSeverity.Informational;
+            InfoMessage.IsOpen = true;
+        }
+        catch (Exception ex)
+        {
+            InfoMessage.Message = $"FX rate download failed: {ex.Message}";
+            InfoMessage.Severity = InfoBarSeverity.Error;
+            InfoMessage.IsOpen = true;
+        }
+        finally
+        {
+            SetButtonsEnabled(true);
+            FxProgress.Visibility = Visibility.Collapsed;
+            FxProgress.IsIndeterminate = false;
+            FxProgressText.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void SetButtonsEnabled(bool enabled)
+    {
+        DownloadBtn.IsEnabled = enabled;
+        ResetBtn.IsEnabled = enabled;
+        FxDownloadBtn.IsEnabled = enabled;
     }
 }

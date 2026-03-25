@@ -14,8 +14,22 @@
     </Window.SystemBackdrop>
 
     <Grid>
-        <NavigationView x:Name="NavView"
+        <Grid.RowDefinitions>
+            <RowDefinition Height="48" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Custom title bar row: app title left, caption buttons reserve space right -->
+        <Grid x:Name="AppTitleBar" Grid.Row="0">
+            <TextBlock Text="CryptoTax2026"
+                       VerticalAlignment="Center"
+                       Margin="16,0,0,0"
+                       Style="{StaticResource CaptionTextBlockStyle}" />
+        </Grid>
+
+        <NavigationView x:Name="NavView" Grid.Row="1"
                         IsBackButtonVisible="Collapsed"
+                        IsSettingsVisible="False"
                         PaneDisplayMode="Top"
                         SelectionChanged="NavView_SelectionChanged">
             <NavigationView.MenuItems>

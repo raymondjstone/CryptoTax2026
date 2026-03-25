@@ -154,6 +154,88 @@
                 </StackPanel>
             </Border>
 
+            <!-- Portfolio Balances - Start of Year -->
+            <Border x:Name="StartBalancePanel" Visibility="Collapsed"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1">
+                <StackPanel Spacing="8">
+                    <TextBlock x:Name="StartBalanceTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock x:Name="StartBalanceTotalText" FontWeight="Bold" FontSize="14" />
+                    <ListView x:Name="StartBalanceList" SelectionMode="None" IsItemClickEnabled="False" MaxHeight="300">
+                        <ListView.HeaderTemplate>
+                            <DataTemplate>
+                                <Grid Padding="8,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100" />
+                                        <ColumnDefinition Width="180" />
+                                        <ColumnDefinition Width="150" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Asset" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="1" Text="Quantity" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="2" Text="GBP Value" FontWeight="SemiBold" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.HeaderTemplate>
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Padding="8,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100" />
+                                        <ColumnDefinition Width="180" />
+                                        <ColumnDefinition Width="150" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding Asset}" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="1" Text="{Binding QuantityFormatted}" />
+                                    <TextBlock Grid.Column="2" Text="{Binding GbpFormatted}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+            </Border>
+
+            <!-- Portfolio Balances - End of Year -->
+            <Border x:Name="EndBalancePanel" Visibility="Collapsed"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1">
+                <StackPanel Spacing="8">
+                    <TextBlock x:Name="EndBalanceTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock x:Name="EndBalanceTotalText" FontWeight="Bold" FontSize="14" />
+                    <ListView x:Name="EndBalanceList" SelectionMode="None" IsItemClickEnabled="False" MaxHeight="300">
+                        <ListView.HeaderTemplate>
+                            <DataTemplate>
+                                <Grid Padding="8,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100" />
+                                        <ColumnDefinition Width="180" />
+                                        <ColumnDefinition Width="150" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Asset" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="1" Text="Quantity" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="2" Text="GBP Value" FontWeight="SemiBold" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.HeaderTemplate>
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Padding="8,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100" />
+                                        <ColumnDefinition Width="180" />
+                                        <ColumnDefinition Width="150" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding Asset}" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="1" Text="{Binding QuantityFormatted}" />
+                                    <TextBlock Grid.Column="2" Text="{Binding GbpFormatted}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+            </Border>
+
             <!-- Warnings / Data Issues -->
             <Border x:Name="WarningsPanel" Visibility="Collapsed"
                     Background="{ThemeResource SystemFillColorCautionBackgroundBrush}"

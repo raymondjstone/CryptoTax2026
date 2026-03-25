@@ -42,7 +42,14 @@ public class TradeStorageService
             return new List<KrakenLedgerEntry>();
 
         var json = await File.ReadAllTextAsync(LedgerFile);
-        return JsonSerializer.Deserialize<List<KrakenLedgerEntry>>(json) ?? new List<KrakenLedgerEntry>();
+        var entries = JsonSerializer.Deserialize<List<KrakenLedgerEntry>>(json) ?? new List<KrakenLedgerEntry>();
+
+        // Always re-normalise asset names on load — handles stale data from before
+        // new suffix rules (.F, .B, .M, .P) were added
+        foreach (var entry in entries)
+            entry.NormalisedAsset = KrakenLedgerEntry.NormaliseAssetName(entry.Asset);
+
+        return entries;
     }
 
     public async Task<List<KrakenLedgerEntry>> MergeAndSaveLedgerAsync(List<KrakenLedgerEntry> newEntries)

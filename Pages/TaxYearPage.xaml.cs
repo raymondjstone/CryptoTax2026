@@ -48,6 +48,7 @@ public sealed partial class TaxYearPage : Page
         OtherGainsBox.Value = userInput?.OtherCapitalGains > 0 ? (double)userInput.OtherCapitalGains : double.NaN;
 
         UpdateSummaryDisplay();
+        LoadBalances();
         LoadDisposals();
         LoadWarnings();
         LoadStaking();
@@ -73,6 +74,37 @@ public sealed partial class TaxYearPage : Page
         HigherRateText.Text = $"CGT higher/additional rate: {_summary.HigherRateCgt:P0}";
         BasicBandText.Text = $"Basic rate band: {FormatGbp(_summary.BasicRateBand)}";
         PersonalAllowanceText.Text = $"Personal allowance: {FormatGbp(_summary.PersonalAllowance)}";
+    }
+
+    private void LoadBalances()
+    {
+        if (_summary == null) return;
+
+        // Start of year
+        if (_summary.StartOfYearBalances.Balances.Count > 0)
+        {
+            StartBalancePanel.Visibility = Visibility.Visible;
+            StartBalanceTitle.Text = _summary.StartOfYearBalances.Label;
+            StartBalanceTotalText.Text = $"Total portfolio value: {FormatGbp(_summary.StartOfYearBalances.TotalGbpValue)}";
+            StartBalanceList.ItemsSource = _summary.StartOfYearBalances.Balances;
+        }
+        else
+        {
+            StartBalancePanel.Visibility = Visibility.Collapsed;
+        }
+
+        // End of year
+        if (_summary.EndOfYearBalances.Balances.Count > 0)
+        {
+            EndBalancePanel.Visibility = Visibility.Visible;
+            EndBalanceTitle.Text = _summary.EndOfYearBalances.Label;
+            EndBalanceTotalText.Text = $"Total portfolio value: {FormatGbp(_summary.EndOfYearBalances.TotalGbpValue)}";
+            EndBalanceList.ItemsSource = _summary.EndOfYearBalances.Balances;
+        }
+        else
+        {
+            EndBalancePanel.Visibility = Visibility.Collapsed;
+        }
     }
 
     private void LoadDisposals()

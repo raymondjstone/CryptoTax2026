@@ -58,8 +58,11 @@ public class CgtCalculationService
         // Calculate disposals using HMRC rules
         var disposals = CalculateDisposals(events);
 
+        // Compute balance snapshots at tax year boundaries
+        var snapshots = ComputeBalanceSnapshots(ledger);
+
         // Group by tax year and build summaries
-        return BuildTaxYearSummaries(disposals, stakingEntries, userInputs);
+        return BuildTaxYearSummaries(disposals, stakingEntries, userInputs, snapshots);
     }
 
     private List<CgtEvent> BuildEventsFromLedger(List<KrakenLedgerEntry> ledger)
@@ -88,6 +91,20 @@ public class CgtCalculationService
                     Date = entries.FirstOrDefault()?.DateTime,
                     LedgerId = entries.FirstOrDefault()?.LedgerId
                 });
+                continue;
+            }
+
+            // Detect flex staking / internal transfers disguised as "trades":
+            // Both sides normalise to the same asset (e.g. ETH → XETH.F or SOL → SOL.F).
+            // These are just moving coins in/out of staking, NOT real trades.
+            var distinctAssets = entries
+                .Select(e => e.NormalisedAsset)
+                .Where(a => !string.IsNullOrEmpty(a))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (distinctAssets.Count == 1)
+            {
+                // All entries normalise to the same asset — this is a staking transfer, skip it
                 continue;
             }
 
@@ -493,17 +510,193 @@ public class CgtCalculationService
         return disposals.OrderBy(d => d.Date).ToList();
     }
 
+    /// <summary>
+    /// Replays all ledger entries chronologically to compute running balances per normalised asset.
+    /// Captures snapshots at each tax year boundary (6 April 00:00 UTC).
+    /// Returns a dictionary keyed by tax year label (e.g. "2023/24") with start and end snapshots.
+    /// </summary>
+    private Dictionary<string, (BalanceSnapshot Start, BalanceSnapshot End)> ComputeBalanceSnapshots(
+        List<KrakenLedgerEntry> ledger)
+    {
+        var result = new Dictionary<string, (BalanceSnapshot Start, BalanceSnapshot End)>();
+        if (ledger.Count == 0) return result;
+
+        // Running balances per normalised asset
+        var balances = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+
+        // Sort all entries by time
+        var sorted = ledger.OrderBy(e => e.Time).ToList();
+
+        // Determine the range of tax years we need snapshots for
+        var earliest = sorted.First().DateTime;
+        var latest = sorted.Last().DateTime;
+
+        int firstTaxYearStart = earliest.Month < 4 || (earliest.Month == 4 && earliest.Day <= 5)
+            ? earliest.Year - 1 : earliest.Year;
+        int lastTaxYearStart = latest.Month < 4 || (latest.Month == 4 && latest.Day <= 5)
+            ? latest.Year - 1 : latest.Year;
+
+        // Build ordered list of tax year boundary dates (6 April of each year)
+        var boundaries = new SortedList<DateTimeOffset, string>();
+        for (int year = firstTaxYearStart; year <= lastTaxYearStart + 1; year++)
+        {
+            var boundaryDate = new DateTimeOffset(year, 4, 6, 0, 0, 0, TimeSpan.Zero);
+            var label = $"{year}/{(year + 1) % 100:D2}";
+            boundaries[boundaryDate] = label;
+        }
+
+        // Walk through entries, snapshotting at each boundary we pass
+        int entryIdx = 0;
+        var boundaryKeys = boundaries.Keys.ToList();
+
+        // Take snapshot at each boundary date
+        Dictionary<string, Dictionary<string, decimal>> snapshotAtBoundary = new();
+
+        foreach (var boundary in boundaryKeys)
+        {
+            // Process all entries up to (but not including) this boundary
+            while (entryIdx < sorted.Count && sorted[entryIdx].DateTime < boundary)
+            {
+                var entry = sorted[entryIdx];
+                if (!entry.IsFiat) // Exclude fiat from crypto balance snapshots
+                {
+                    var asset = entry.NormalisedAsset;
+                    if (!string.IsNullOrEmpty(asset))
+                    {
+                        balances.TryGetValue(asset, out var current);
+                        balances[asset] = current + entry.Amount - entry.Fee;
+                    }
+                }
+                entryIdx++;
+            }
+
+            // Snapshot current balances at this boundary
+            snapshotAtBoundary[boundary.ToString("o")] = new Dictionary<string, decimal>(balances);
+        }
+
+        // Process remaining entries after the last boundary
+        while (entryIdx < sorted.Count)
+        {
+            var entry = sorted[entryIdx];
+            if (!entry.IsFiat)
+            {
+                var asset = entry.NormalisedAsset;
+                if (!string.IsNullOrEmpty(asset))
+                {
+                    balances.TryGetValue(asset, out var current);
+                    balances[asset] = current + entry.Amount - entry.Fee;
+                }
+            }
+            entryIdx++;
+        }
+
+        // Build start/end snapshots for each tax year
+        for (int i = 0; i < boundaryKeys.Count - 1; i++)
+        {
+            var startBoundary = boundaryKeys[i];
+            var endBoundary = boundaryKeys[i + 1];
+            var taxYearLabel = boundaries[startBoundary];
+
+            var startBalances = snapshotAtBoundary[startBoundary.ToString("o")];
+            var endBalances = snapshotAtBoundary[endBoundary.ToString("o")];
+
+            var startSnapshot = new BalanceSnapshot
+            {
+                Label = $"Start of {taxYearLabel}",
+                Date = startBoundary,
+                Balances = startBalances
+                    .Where(kv => kv.Value > 0.00000001m)
+                    .OrderByDescending(kv => _fxService.GetGbpValueOfAsset(kv.Key, kv.Value, startBoundary))
+                    .Select(kv => new AssetBalance
+                    {
+                        Asset = kv.Key,
+                        Quantity = kv.Value,
+                        GbpValue = _fxService.GetGbpValueOfAsset(kv.Key, kv.Value, startBoundary)
+                    }).ToList()
+            };
+
+            var endSnapshot = new BalanceSnapshot
+            {
+                Label = $"End of {taxYearLabel}",
+                Date = endBoundary.AddDays(-1), // 5 April
+                Balances = endBalances
+                    .Where(kv => kv.Value > 0.00000001m)
+                    .OrderByDescending(kv => _fxService.GetGbpValueOfAsset(kv.Key, kv.Value, endBoundary.AddDays(-1)))
+                    .Select(kv => new AssetBalance
+                    {
+                        Asset = kv.Key,
+                        Quantity = kv.Value,
+                        GbpValue = _fxService.GetGbpValueOfAsset(kv.Key, kv.Value, endBoundary.AddDays(-1))
+                    }).ToList()
+            };
+
+            result[taxYearLabel] = (startSnapshot, endSnapshot);
+        }
+
+        // Handle the final tax year (from last boundary to end of data)
+        if (boundaryKeys.Count > 0)
+        {
+            var lastBoundary = boundaryKeys[^1];
+            var lastLabel = boundaries[lastBoundary];
+
+            // Only add if we have entries in this tax year and it's not already covered
+            if (!result.ContainsKey(lastLabel) && latest >= lastBoundary)
+            {
+                var startBalances = snapshotAtBoundary[lastBoundary.ToString("o")];
+
+                var startSnapshot = new BalanceSnapshot
+                {
+                    Label = $"Start of {lastLabel}",
+                    Date = lastBoundary,
+                    Balances = startBalances
+                        .Where(kv => kv.Value > 0.00000001m)
+                        .OrderByDescending(kv => _fxService.GetGbpValueOfAsset(kv.Key, kv.Value, lastBoundary))
+                        .Select(kv => new AssetBalance
+                        {
+                            Asset = kv.Key,
+                            Quantity = kv.Value,
+                            GbpValue = _fxService.GetGbpValueOfAsset(kv.Key, kv.Value, lastBoundary)
+                        }).ToList()
+                };
+
+                // End = current balances (latest data point)
+                var endSnapshot = new BalanceSnapshot
+                {
+                    Label = $"End of {lastLabel} (latest data)",
+                    Date = latest,
+                    Balances = balances
+                        .Where(kv => kv.Value > 0.00000001m)
+                        .OrderByDescending(kv => _fxService.GetGbpValueOfAsset(kv.Key, kv.Value, latest))
+                        .Select(kv => new AssetBalance
+                        {
+                            Asset = kv.Key,
+                            Quantity = kv.Value,
+                            GbpValue = _fxService.GetGbpValueOfAsset(kv.Key, kv.Value, latest)
+                        }).ToList()
+                };
+
+                result[lastLabel] = (startSnapshot, endSnapshot);
+            }
+        }
+
+        return result;
+    }
+
     private List<TaxYearSummary> BuildTaxYearSummaries(
         List<DisposalRecord> disposals,
         List<KrakenLedgerEntry> stakingEntries,
-        Dictionary<string, TaxYearUserInput> userInputs)
+        Dictionary<string, TaxYearUserInput> userInputs,
+        Dictionary<string, (BalanceSnapshot Start, BalanceSnapshot End)>? balanceSnapshots = null)
     {
-        // Get all tax years from disposals and staking
+        // Get all tax years from disposals, staking, and balance snapshots
         var allTaxYears = new HashSet<string>();
         foreach (var d in disposals)
             allTaxYears.Add(d.TaxYear);
         foreach (var s in stakingEntries)
             allTaxYears.Add(GetTaxYearLabel(s.DateTime));
+        if (balanceSnapshots != null)
+            foreach (var key in balanceSnapshots.Keys)
+                allTaxYears.Add(key);
 
         var summaries = new List<TaxYearSummary>();
 
@@ -554,6 +747,15 @@ public class CgtCalculationService
             // Also include undated warnings
             yearWarnings.AddRange(_warnings.Where(w => !w.Date.HasValue));
 
+            // Balance snapshots for this tax year
+            var startBalances = new BalanceSnapshot();
+            var endBalances = new BalanceSnapshot();
+            if (balanceSnapshots != null && balanceSnapshots.TryGetValue(taxYearLabel, out var snapshots))
+            {
+                startBalances = snapshots.Start;
+                endBalances = snapshots.End;
+            }
+
             summaries.Add(new TaxYearSummary
             {
                 TaxYear = taxYearLabel,
@@ -574,6 +776,8 @@ public class CgtCalculationService
                 PersonalAllowance = rates.PersonalAllowance,
                 StakingIncome = stakingIncome,
                 StakingRewards = stakingDetails,
+                StartOfYearBalances = startBalances,
+                EndOfYearBalances = endBalances,
                 Warnings = yearWarnings
             });
         }

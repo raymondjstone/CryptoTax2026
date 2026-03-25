@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,9 +12,9 @@ using CryptoTax2026.Models;
 namespace CryptoTax2026.Services;
 
 /// <summary>
-/// Converts any currency amount to GBP using historical rates from Kraken's public OHLC API.
-/// Uses 4-hour candles for better trade-time precision (not end-of-day).
-/// Dynamically discovers Kraken pair names for unknown assets.
+/// Converts any currency amount to GBP using historical rates.
+/// Primary source: Kraken public OHLC API (4-hour candles).
+/// Fallback source: CryptoCompare (hourly candles) for delisted/missing pairs.
 /// Rates are cached permanently on disk — historical data never expires.
 ///
 /// IMPORTANT: USDT is NOT USD. USDT → USD → GBP (two-step conversion).
@@ -25,37 +27,42 @@ public class FxConversionService
 
     private readonly KrakenApiService _krakenApi;
     private readonly List<CalculationWarning> _warnings;
+    private readonly HttpClient _fallbackHttp;
 
-    // Cache: key = Kraken pair name, value = sorted list of (unix_timestamp -> close_price)
-    // Uses timestamps for sub-daily precision
+    // Cache: key = pair/source key, value = sorted list of (unix_timestamp -> close_price)
     private readonly Dictionary<string, SortedList<long, decimal>> _rateCache = new(StringComparer.OrdinalIgnoreCase);
 
-    // Runtime-discovered pair mappings: (asset, quoteCurrency) -> (krakenPair, invert)
-    private readonly Dictionary<(string Asset, string Quote), (string KrakenPair, bool Invert)> _pairMap = new();
+    // Runtime-discovered pair mappings: (asset, quoteCurrency) -> (cacheKey, invert)
+    private readonly Dictionary<(string Asset, string Quote), (string CacheKey, bool Invert)> _pairMap = new();
 
-    // Known Kraken pair names for common conversions
+    // Track data source per cache key
+    private readonly Dictionary<string, string> _pairSources = new(StringComparer.OrdinalIgnoreCase);
+
+    // Known Kraken OHLC API pair names for common conversions.
+    // IMPORTANT: Kraken's OHLC API pair names differ from trade/ledger pair names.
+    // e.g. OHLC uses "XRPGBP" but trades use "XXRPZGBP". Always verify with the OHLC endpoint.
     private static readonly (string From, string To, string KrakenPair, bool Invert)[] KnownPairs = new[]
     {
-        // Fiat to GBP
-        ("USD", "GBP", "GBPUSD", true),      // Kraken has GBP/USD, invert to get USD→GBP
-        ("EUR", "GBP", "GBPEUR", true),       // Kraken has GBP/EUR, invert to get EUR→GBP
+        // Fiat to GBP (verified against Kraken OHLC API)
+        ("USD", "GBP", "GBPUSD", true),      // Kraken has GBP/USD → invert for USD→GBP
+        ("EUR", "GBP", "EURGBP", false),      // Kraken has EUR/GBP directly (NOT GBPEUR)
 
-        // Stablecoins to USD (NOT to GBP directly - two-step conversion)
+        // Stablecoins to USD
         ("USDT", "USD", "USDTUSD", false),
         ("USDC", "USD", "USDCUSD", false),
         ("DAI", "USD", "DAIUSD", false),
 
-        // Major crypto to GBP
-        ("BTC", "GBP", "XXBTZGBP", false),
-        ("ETH", "GBP", "XETHZGBP", false),
-        ("XRP", "GBP", "XXRPZGBP", false),
-        ("LTC", "GBP", "XLTCZGBP", false),
+        // Crypto to GBP — verified pair names for Kraken OHLC API
+        ("BTC", "GBP", "XXBTZGBP", false),    // BTC still uses legacy format
+        ("ETH", "GBP", "XETHZGBP", false),    // ETH still uses legacy format
+        ("XRP", "GBP", "XRPGBP", false),      // NOT XXRPZGBP — that fails on OHLC
+        ("LTC", "GBP", "LTCGBP", false),      // NOT XLTCZGBP — that fails on OHLC
         ("ADA", "GBP", "ADAGBP", false),
         ("DOT", "GBP", "DOTGBP", false),
         ("SOL", "GBP", "SOLGBP", false),
         ("DOGE", "GBP", "XDGGBP", false),
         ("LINK", "GBP", "LINKGBP", false),
-        ("MATIC", "GBP", "MATICGBP", false),
+        ("POL", "GBP", "POLGBP", false),      // No GBP pair on Kraken — will fallback to USD
         ("AVAX", "GBP", "AVAXGBP", false),
         ("ATOM", "GBP", "ATOMGBP", false),
         ("ALGO", "GBP", "ALGOGBP", false),
@@ -89,18 +96,29 @@ public class FxConversionService
         ("OCEAN", "GBP", "OCEANGBP", false),
         ("RUNE", "GBP", "RUNEGBP", false),
         ("SCRT", "GBP", "SCRTGBP", false),
+        ("SUI", "GBP", "SUIGBP", false),
+        ("SEI", "GBP", "SEIGBP", false),
+        ("PEPE", "GBP", "PEPEGBP", false),
+        ("WIF", "GBP", "WIFGBP", false),
+        ("RENDER", "GBP", "RENDERGBP", false),
+        ("JUP", "GBP", "JUPGBP", false),
+        ("PYTH", "GBP", "PYTHGBP", false),
+        ("BONK", "GBP", "BONKGBP", false),
+        ("STRK", "GBP", "STRKGBP", false),
+        ("PENDLE", "GBP", "PENDLEGBP", false),
+        ("ETHFI", "GBP", "ETHFIGBP", false),
 
-        // Major crypto to USD (fallback if no GBP pair exists)
+        // Crypto to USD — fallback when no GBP pair exists
         ("BTC", "USD", "XXBTZUSD", false),
         ("ETH", "USD", "XETHZUSD", false),
-        ("XRP", "USD", "XXRPZUSD", false),
-        ("LTC", "USD", "XLTCZUSD", false),
+        ("XRP", "USD", "XRPUSD", false),      // NOT XXRPZUSD
+        ("LTC", "USD", "LTCUSD", false),       // NOT XLTCZUSD
         ("ADA", "USD", "ADAUSD", false),
         ("DOT", "USD", "DOTUSD", false),
         ("SOL", "USD", "SOLUSD", false),
         ("DOGE", "USD", "XDGUSD", false),
         ("LINK", "USD", "LINKUSD", false),
-        ("MATIC", "USD", "MATICUSD", false),
+        ("POL", "USD", "POLUSD", false),
         ("AVAX", "USD", "AVAXUSD", false),
         ("ATOM", "USD", "ATOMUSD", false),
         ("ALGO", "USD", "ALGOUSD", false),
@@ -134,6 +152,30 @@ public class FxConversionService
         ("OCEAN", "USD", "OCEANUSD", false),
         ("RUNE", "USD", "RUNEUSD", false),
         ("SCRT", "USD", "SCRTUSD", false),
+        ("TAO", "USD", "TAOUSD", false),
+        ("SUI", "USD", "SUIUSD", false),
+        ("SEI", "USD", "SEIUSD", false),
+        ("PEPE", "USD", "PEPEUSD", false),
+        ("WIF", "USD", "WIFUSD", false),
+        ("RENDER", "USD", "RENDERUSD", false),
+        ("JUP", "USD", "JUPUSD", false),
+        ("PYTH", "USD", "PYTHUSD", false),
+        ("BONK", "USD", "BONKUSD", false),
+        ("STRK", "USD", "STRKUSD", false),
+        ("PENDLE", "USD", "PENDLEUSD", false),
+        ("ETHFI", "USD", "ETHFIUSD", false),
+    };
+
+    // Aliases: when an asset can't be found under its normalised name, try these alternatives.
+    // Covers renamed coins (POL←MATIC) and alternate Kraken tickers.
+    private static readonly Dictionary<string, string[]> CoinAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["POL"]    = new[] { "MATIC" },        // POL was MATIC — delisted on Kraken, use CryptoCompare
+        ["MATIC"]  = new[] { "POL" },
+        ["FET"]    = new[] { "ASI" },          // FET merged into ASI Alliance
+        ["OCEAN"]  = new[] { "ASI" },
+        ["RENDER"] = new[] { "RNDR" },
+        ["RNDR"]   = new[] { "RENDER" },
     };
 
     // Track which assets we've already warned about to avoid duplicate warnings
@@ -145,15 +187,22 @@ public class FxConversionService
         _warnings = warnings;
         Directory.CreateDirectory(CacheFolder);
 
+        _fallbackHttp = new HttpClient();
+        _fallbackHttp.DefaultRequestHeaders.Add("User-Agent", "CryptoTax2026/1.0");
+
         // Populate initial pair map from known pairs
+        // Don't overwrite if already set (first entry wins for each (From,To) key)
         foreach (var p in KnownPairs)
-            _pairMap[(p.From.ToUpperInvariant(), p.To.ToUpperInvariant())] = (p.KrakenPair, p.Invert);
+        {
+            var key = (p.From.ToUpperInvariant(), p.To.ToUpperInvariant());
+            if (!_pairMap.ContainsKey(key))
+                _pairMap[key] = (p.KrakenPair, p.Invert);
+        }
     }
 
     /// <summary>
     /// Pre-loads all FX rate data needed for the given set of currencies and date range.
-    /// Dynamically discovers Kraken pair names for assets not in the known list.
-    /// Uses 4-hour OHLC candles and downloads in segments with permanent caching.
+    /// Tries Kraken first, then aliases, then CryptoCompare as fallback.
     /// </summary>
     public async Task PreloadRatesAsync(
         IEnumerable<string> currencies,
@@ -162,7 +211,7 @@ public class FxConversionService
         CancellationToken ct = default)
     {
         var neededCurrencies = currencies
-            .Select(c => c.ToUpperInvariant())
+            .Select(c => KrakenLedgerEntry.NormaliseAssetName(c).ToUpperInvariant())
             .Where(c => c != "GBP")
             .Distinct()
             .ToList();
@@ -178,12 +227,12 @@ public class FxConversionService
             if (currency is "USD" or "EUR")
             {
                 if (_pairMap.TryGetValue((currency, "GBP"), out var fx))
-                    pairsToDownload.Add(fx.KrakenPair);
+                    pairsToDownload.Add(fx.CacheKey);
             }
             else if (currency is "USDT" or "USDC" or "DAI")
             {
                 if (_pairMap.TryGetValue((currency, "USD"), out var stableFx))
-                    pairsToDownload.Add(stableFx.KrakenPair);
+                    pairsToDownload.Add(stableFx.CacheKey);
                 pairsToDownload.Add("GBPUSD");
             }
             else
@@ -191,17 +240,14 @@ public class FxConversionService
                 // For crypto: add GBP pair if known, otherwise add USD pair
                 if (_pairMap.TryGetValue((currency, "GBP"), out var gbpPair))
                 {
-                    pairsToDownload.Add(gbpPair.KrakenPair);
+                    pairsToDownload.Add(gbpPair.CacheKey);
                 }
                 else if (_pairMap.TryGetValue((currency, "USD"), out var usdPair))
                 {
-                    pairsToDownload.Add(usdPair.KrakenPair);
+                    pairsToDownload.Add(usdPair.CacheKey);
                     pairsToDownload.Add("GBPUSD");
                 }
-                else
-                {
-                    // Unknown asset — will try dynamic discovery below
-                }
+                // else: unknown — will try dynamic discovery + fallback below
             }
         }
 
@@ -212,12 +258,26 @@ public class FxConversionService
         {
             if (ct.IsCancellationRequested) break;
             progress?.Report((loaded, $"Loading FX rates: {pair} ({loaded + 1}/{totalPairs})..."));
-            await EnsurePairLoadedAsync(pair, earliest, ct);
+            try
+            {
+                await EnsurePairLoadedAsync(pair, earliest, ct);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                // Log but continue — one bad pair shouldn't kill the whole download
+                _warnings.Add(new CalculationWarning
+                {
+                    Level = WarningLevel.Warning,
+                    Category = "FX Rate",
+                    Message = $"Failed to load {pair}: {ex.Message}. Will try fallback."
+                });
+            }
             loaded++;
             await Task.Delay(1500, ct);
         }
 
-        // Dynamic discovery for currencies we don't have pairs for
+        // Dynamic discovery for currencies we don't have rates for yet
         var undiscoveredCurrencies = neededCurrencies
             .Where(c => c is not "USD" and not "EUR" and not "USDT" and not "USDC" and not "DAI")
             .Where(c => !_pairMap.ContainsKey((c, "GBP")) && !_pairMap.ContainsKey((c, "USD")))
@@ -230,9 +290,64 @@ public class FxConversionService
 
             var discovered = await TryDiscoverPairAsync(currency, earliest, ct);
             if (discovered)
+            {
+                loaded++;
+                continue;
+            }
+
+            // Try aliases on Kraken (e.g. POL → try MATIC pairs)
+            if (CoinAliases.TryGetValue(currency, out var aliases))
+            {
+                foreach (var alias in aliases)
+                {
+                    if (ct.IsCancellationRequested) break;
+                    progress?.Report((loaded, $"Trying alias {alias} for {currency}..."));
+
+                    var aliasFound = await TryDiscoverPairForAliasAsync(currency, alias, earliest, ct);
+                    if (aliasFound)
+                    {
+                        loaded++;
+                        break;
+                    }
+                }
+
+                // Check if we found it via alias
+                if (_pairMap.ContainsKey((currency, "GBP")) || _pairMap.ContainsKey((currency, "USD")))
+                    continue;
+            }
+
+            // Fallback: CryptoCompare
+            progress?.Report((loaded, $"Trying CryptoCompare for {currency}..."));
+            var fallbackOk = await TryFallbackCryptoCompareAsync(currency, earliest, ct);
+            if (fallbackOk)
                 loaded++;
 
-            await Task.Delay(1500, ct);
+            await Task.Delay(500, ct);
+        }
+
+        // Also try CryptoCompare for any known-pair currencies that failed to load from Kraken
+        var failedKnownCurrencies = neededCurrencies
+            .Where(c => c is not "USD" and not "EUR" and not "USDT" and not "USDC" and not "DAI")
+            .Where(c =>
+            {
+                // Has a pair mapping but no actual rate data
+                if (_pairMap.TryGetValue((c, "GBP"), out var gp))
+                    if (_rateCache.ContainsKey(gp.CacheKey) && _rateCache[gp.CacheKey].Count > 0) return false;
+                if (_pairMap.TryGetValue((c, "USD"), out var up))
+                    if (_rateCache.ContainsKey(up.CacheKey) && _rateCache[up.CacheKey].Count > 0) return false;
+                // Already handled by discovery above
+                if (undiscoveredCurrencies.Contains(c)) return false;
+                return true;
+            })
+            .ToList();
+
+        foreach (var currency in failedKnownCurrencies)
+        {
+            if (ct.IsCancellationRequested) break;
+            progress?.Report((loaded, $"Trying CryptoCompare fallback for {currency}..."));
+            var fallbackOk = await TryFallbackCryptoCompareAsync(currency, earliest, ct);
+            if (fallbackOk) loaded++;
+            await Task.Delay(500, ct);
         }
 
         progress?.Report((loaded, $"FX rates loaded for {loaded} pairs."));
@@ -243,7 +358,6 @@ public class FxConversionService
     /// </summary>
     private async Task<bool> TryDiscoverPairAsync(string asset, DateTimeOffset earliest, CancellationToken ct)
     {
-        // Try these pair name patterns in order (GBP first, then USD as fallback)
         var candidates = new List<(string Pair, string Quote, bool Invert)>
         {
             ($"{asset}GBP", "GBP", false),
@@ -256,82 +370,231 @@ public class FxConversionService
         {
             try
             {
-                var loaded = await TryDownloadPairAsync(pairName, earliest, ct);
+                var loaded = await TryDownloadKrakenPairAsync(pairName, earliest, ct);
                 if (loaded)
                 {
-                    // Successfully found a pair — register it
                     _pairMap[(asset, quote)] = (pairName, invert);
+                    _pairSources[pairName] = "Kraken";
                     if (quote == "USD")
-                    {
-                        // Also need USD→GBP if not already loaded
                         await EnsurePairLoadedAsync("GBPUSD", earliest, ct);
-                    }
                     return true;
                 }
             }
             catch
             {
-                // Pair doesn't exist, try next candidate
+                // Pair doesn't exist on Kraken, try next
             }
-
             await Task.Delay(1500, ct);
         }
 
-        // No pair found at all
+        return false;
+    }
+
+    /// <summary>
+    /// Tries Kraken pair discovery using an alias name, then registers the result under the original asset.
+    /// e.g. asset=POL, alias=MATIC → tries MATICGBP, MATICUSD etc.
+    /// </summary>
+    private async Task<bool> TryDiscoverPairForAliasAsync(string asset, string alias, DateTimeOffset earliest, CancellationToken ct)
+    {
+        var candidates = new List<(string Pair, string Quote, bool Invert)>
+        {
+            ($"{alias}GBP", "GBP", false),
+            ($"{alias}USD", "USD", false),
+            ($"X{alias}ZGBP", "GBP", false),
+            ($"X{alias}ZUSD", "USD", false),
+        };
+
+        foreach (var (pairName, quote, invert) in candidates)
+        {
+            try
+            {
+                var loaded = await TryDownloadKrakenPairAsync(pairName, earliest, ct);
+                if (loaded)
+                {
+                    // Register under the ORIGINAL asset name so lookups for POL find MATICGBP data
+                    _pairMap[(asset, quote)] = (pairName, invert);
+                    _pairSources[pairName] = $"Kraken (via {alias})";
+                    if (quote == "USD")
+                        await EnsurePairLoadedAsync("GBPUSD", earliest, ct);
+                    return true;
+                }
+            }
+            catch { }
+            await Task.Delay(1500, ct);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Fallback: downloads hourly rate data from CryptoCompare for assets Kraken doesn't have.
+    /// Tries GBP first, then USD.
+    /// </summary>
+    private async Task<bool> TryFallbackCryptoCompareAsync(string asset, DateTimeOffset earliest, CancellationToken ct)
+    {
+        // Also try aliases for CryptoCompare — some coins have different tickers
+        var tickersToTry = new List<string> { asset };
+        if (CoinAliases.TryGetValue(asset, out var aliases))
+            tickersToTry.AddRange(aliases);
+
+        foreach (var ticker in tickersToTry)
+        {
+            // Try GBP first
+            var gbpKey = $"CC_{ticker}_GBP";
+            if (await TryDownloadCryptoCompareAsync(ticker, "GBP", gbpKey, earliest, ct))
+            {
+                _pairMap[(asset, "GBP")] = (gbpKey, false);
+                var sourceLabel = ticker == asset ? "CryptoCompare" : $"CryptoCompare (via {ticker})";
+                _pairSources[gbpKey] = sourceLabel;
+                return true;
+            }
+
+            await Task.Delay(500, ct);
+
+            // Try USD
+            var usdKey = $"CC_{ticker}_USD";
+            if (await TryDownloadCryptoCompareAsync(ticker, "USD", usdKey, earliest, ct))
+            {
+                _pairMap[(asset, "USD")] = (usdKey, false);
+                var sourceLabel = ticker == asset ? "CryptoCompare" : $"CryptoCompare (via {ticker})";
+                _pairSources[usdKey] = sourceLabel;
+                await EnsurePairLoadedAsync("GBPUSD", earliest, ct);
+                return true;
+            }
+
+            await Task.Delay(500, ct);
+        }
+
+        // Nothing worked — warn
         if (_warnedAssets.Add(asset))
         {
             _warnings.Add(new CalculationWarning
             {
                 Level = WarningLevel.Warning,
                 Category = "FX Rate",
-                Message = $"Could not find any Kraken trading pair for {asset}. Tried {asset}GBP, {asset}USD. " +
-                          $"Conversions for this asset will use fallback rates and may be inaccurate."
+                Message = $"Could not find FX rates for {asset} from Kraken or CryptoCompare. " +
+                          $"Conversions for this asset will be zero — values may be incorrect."
             });
         }
         return false;
     }
 
     /// <summary>
-    /// Tries to download OHLC data for a pair. Returns true if data was found, false if pair doesn't exist.
+    /// Downloads hourly OHLC data from CryptoCompare.
     /// </summary>
-    private async Task<bool> TryDownloadPairAsync(string krakenPair, DateTimeOffset earliest, CancellationToken ct)
+    private async Task<bool> TryDownloadCryptoCompareAsync(
+        string fromSymbol, string toSymbol, string cacheKey,
+        DateTimeOffset earliest, CancellationToken ct)
     {
-        // Check if already in cache
+        // Check memory + disk cache first
+        if (_rateCache.ContainsKey(cacheKey) && _rateCache[cacheKey].Count > 0)
+            return true;
+        if (TryLoadFromCache(cacheKey))
+            return true;
+
+        var allRates = new SortedList<long, decimal>();
+        var toTs = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var sinceTs = earliest.AddDays(-7).ToUnixTimeSeconds();
+        int maxSegments = 20; // safety limit
+
+        try
+        {
+            for (int seg = 0; seg < maxSegments && !ct.IsCancellationRequested; seg++)
+            {
+                // CryptoCompare histohour: max 2000 data points per request
+                var url = $"https://min-api.cryptocompare.com/data/v2/histohour" +
+                          $"?fsym={fromSymbol}&tsym={toSymbol}&limit=2000&toTs={toTs}";
+
+                var response = await _fallbackHttp.GetAsync(url, ct);
+                if (!response.IsSuccessStatusCode) return false;
+
+                var json = await response.Content.ReadAsStringAsync(ct);
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                // Check for errors
+                if (root.TryGetProperty("Response", out var resp) && resp.GetString() == "Error")
+                    return false;
+
+                if (!root.TryGetProperty("Data", out var dataOuter)) return false;
+                if (!dataOuter.TryGetProperty("Data", out var dataArray)) return false;
+
+                int added = 0;
+                long earliestInBatch = long.MaxValue;
+                foreach (var item in dataArray.EnumerateArray())
+                {
+                    var time = item.GetProperty("time").GetInt64();
+                    var close = item.GetProperty("close").GetDecimal();
+                    if (close > 0)
+                    {
+                        allRates[time] = close;
+                        added++;
+                        if (time < earliestInBatch) earliestInBatch = time;
+                    }
+                }
+
+                if (added == 0) break;
+
+                // If we've reached before the earliest needed date, stop
+                if (earliestInBatch <= sinceTs) break;
+
+                // Move window back
+                toTs = earliestInBatch - 1;
+
+                await Task.Delay(300, ct); // CryptoCompare rate limit
+            }
+        }
+        catch
+        {
+            // Download failed — return whatever we got
+        }
+
+        if (allRates.Count == 0)
+            return false;
+
+        _rateCache[cacheKey] = allRates;
+        SaveToCache(cacheKey, allRates);
+        return true;
+    }
+
+    /// <summary>
+    /// Tries to download OHLC data for a Kraken pair. Returns true if data was found.
+    /// </summary>
+    private async Task<bool> TryDownloadKrakenPairAsync(string krakenPair, DateTimeOffset earliest, CancellationToken ct)
+    {
         if (_rateCache.ContainsKey(krakenPair) && _rateCache[krakenPair].Count > 0)
             return true;
 
-        // Try loading from disk cache
         if (TryLoadFromCache(krakenPair))
             return true;
 
-        // Download from Kraken — use 4-hour candles (interval=240) for better time precision
         var since = earliest.AddDays(-7).ToUnixTimeSeconds();
         var allCandles = new List<OhlcCandle>();
 
-        // Download in segments (Kraken returns max 720 candles per request)
-        // 720 * 4 hours = 120 days per segment
         var currentSince = since;
-        int emptyResponses = 0;
-        while (!ct.IsCancellationRequested)
+        try
         {
-            var candles = await _krakenApi.GetOhlcDataAsync(krakenPair, currentSince, ct, interval: 240);
-
-            if (candles.Count == 0)
+            while (!ct.IsCancellationRequested)
             {
-                emptyResponses++;
-                if (emptyResponses > 1) break; // pair likely doesn't exist
-                break;
+                var candles = await _krakenApi.GetOhlcDataAsync(krakenPair, currentSince, ct, interval: 240);
+
+                if (candles.Count == 0)
+                    break;
+
+                allCandles.AddRange(candles);
+
+                if (candles.Count < 720)
+                    break;
+
+                currentSince = candles.Last().Timestamp;
+                await Task.Delay(1500, ct);
             }
-
-            allCandles.AddRange(candles);
-
-            // If we got fewer than 720 candles, we've reached the end
-            if (candles.Count < 720)
-                break;
-
-            // Continue from after the last candle
-            currentSince = candles.Last().Timestamp;
-            await Task.Delay(1500, ct); // rate limit
+        }
+        catch (OperationCanceledException) { throw; } // let cancellation propagate
+        catch
+        {
+            // Kraken returned an error (e.g. "Unknown asset pair") — this pair doesn't exist
+            return false;
         }
 
         if (allCandles.Count == 0)
@@ -339,46 +602,40 @@ public class FxConversionService
 
         var rates = new SortedList<long, decimal>();
         foreach (var candle in allCandles)
-        {
             rates[candle.Timestamp] = candle.Close;
-        }
 
         _rateCache[krakenPair] = rates;
+        _pairSources[krakenPair] = "Kraken";
         SaveToCache(krakenPair, rates);
         return true;
     }
 
     /// <summary>
     /// Converts an amount from the given currency to GBP at the given date/time.
-    /// Uses the closest available rate to the actual transaction time.
     /// </summary>
     public decimal ConvertToGbp(decimal amount, string fromCurrency, DateTimeOffset date)
     {
-        fromCurrency = fromCurrency.ToUpperInvariant();
+        fromCurrency = KrakenLedgerEntry.NormaliseAssetName(fromCurrency).ToUpperInvariant();
 
-        if (fromCurrency == "GBP")
-            return amount;
-
-        if (amount == 0)
-            return 0;
+        if (fromCurrency == "GBP") return amount;
+        if (amount == 0) return 0;
 
         var timestamp = date.ToUnixTimeSeconds();
 
-        // ---- Fiat currencies ----
+        // Fiat
         if (fromCurrency == "USD")
             return amount * GetRate("USD", "GBP", timestamp);
-
         if (fromCurrency == "EUR")
             return amount * GetRate("EUR", "GBP", timestamp);
 
-        // ---- Stablecoins: convert to USD first, then USD to GBP ----
+        // Stablecoins: → USD → GBP
         if (fromCurrency is "USDT" or "USDC" or "DAI")
         {
             var usdAmount = amount * GetRate(fromCurrency, "USD", timestamp);
             return usdAmount * GetRate("USD", "GBP", timestamp);
         }
 
-        // ---- Crypto: try direct GBP pair, fallback to USD pair + USD/GBP ----
+        // Crypto: try direct GBP pair, fallback to USD pair + USD/GBP
         var gbpRate = TryGetRate(fromCurrency, "GBP", timestamp);
         if (gbpRate.HasValue)
             return amount * gbpRate.Value;
@@ -390,7 +647,7 @@ public class FxConversionService
             return usdVal * GetRate("USD", "GBP", timestamp);
         }
 
-        // No rate available — only warn once per asset to avoid spam
+        // No rate available
         if (_warnedAssets.Add($"{fromCurrency}_{DateOnly.FromDateTime(date.UtcDateTime)}"))
         {
             _warnings.Add(new CalculationWarning
@@ -403,26 +660,17 @@ public class FxConversionService
                 Asset = fromCurrency
             });
         }
-
-        // Return 0 instead of the raw amount — returning the quantity as GBP value
-        // causes wildly incorrect tax calculations (e.g. 0.5 ETH treated as £0.50)
         return 0m;
     }
 
-    /// <summary>
-    /// Gets the GBP value of a crypto asset on a given date (for valuing staking rewards etc).
-    /// </summary>
     public decimal GetGbpValueOfAsset(string asset, decimal quantity, DateTimeOffset date)
-    {
-        return ConvertToGbp(quantity, asset, date);
-    }
+        => ConvertToGbp(quantity, asset, date);
 
     private decimal GetRate(string from, string to, long timestamp)
     {
         var rate = TryGetRate(from, to, timestamp);
         if (rate.HasValue) return rate.Value;
 
-        // Fallback — only warn once
         var warnKey = $"rate_{from}_{to}";
         if (_warnedAssets.Add(warnKey))
         {
@@ -435,7 +683,6 @@ public class FxConversionService
                 Asset = from
             });
         }
-
         return 1m;
     }
 
@@ -447,10 +694,9 @@ public class FxConversionService
         if (!_pairMap.TryGetValue((from, to), out var pair))
             return null;
 
-        if (!_rateCache.TryGetValue(pair.KrakenPair, out var rates) || rates.Count == 0)
+        if (!_rateCache.TryGetValue(pair.CacheKey, out var rates) || rates.Count == 0)
             return null;
 
-        // Find the closest rate to this timestamp using binary search
         var closestRate = FindClosestRate(rates, timestamp);
 
         if (pair.Invert && closestRate != 0)
@@ -465,7 +711,6 @@ public class FxConversionService
         int lo = 0, hi = keys.Count - 1;
         int bestBefore = -1;
 
-        // Binary search for closest timestamp on or before target
         while (lo <= hi)
         {
             int mid = (lo + hi) / 2;
@@ -482,7 +727,6 @@ public class FxConversionService
 
         if (bestBefore >= 0)
         {
-            // Check if the next entry is closer
             if (bestBefore + 1 < keys.Count)
             {
                 var diffBefore = targetTimestamp - keys[bestBefore];
@@ -493,38 +737,35 @@ public class FxConversionService
             return rates.Values[bestBefore];
         }
 
-        // All rates are after this timestamp — use the earliest
         if (keys.Count > 0)
             return rates.Values[0];
 
         return 0m;
     }
 
-    private async Task EnsurePairLoadedAsync(string krakenPair, DateTimeOffset earliest, CancellationToken ct)
+    private async Task EnsurePairLoadedAsync(string cacheKey, DateTimeOffset earliest, CancellationToken ct)
     {
-        // Check memory cache first
-        if (_rateCache.ContainsKey(krakenPair) && _rateCache[krakenPair].Count > 0)
+        if (_rateCache.ContainsKey(cacheKey) && _rateCache[cacheKey].Count > 0)
             return;
 
-        // Try loading from disk cache
-        if (TryLoadFromCache(krakenPair))
+        if (TryLoadFromCache(cacheKey))
         {
-            // Check if we need to extend the cache with newer data
-            var cached = _rateCache[krakenPair];
+            var cached = _rateCache[cacheKey];
             var latestCached = DateTimeOffset.FromUnixTimeSeconds(cached.Keys.Last());
             var staleness = DateTimeOffset.UtcNow - latestCached;
 
-            // Only re-download if cache is more than 7 days stale
             if (staleness.TotalDays <= 7)
                 return;
 
-            // Download only new data from where cache ends
-            await DownloadAndAppendAsync(krakenPair, cached.Keys.Last(), ct);
+            // Try to extend with newer data (only for Kraken pairs, not CC_ prefixed)
+            if (!cacheKey.StartsWith("CC_", StringComparison.OrdinalIgnoreCase))
+                await DownloadAndAppendAsync(cacheKey, cached.Keys.Last(), ct);
             return;
         }
 
-        // No cache at all — download everything
-        await TryDownloadPairAsync(krakenPair, earliest, ct);
+        // No cache — download (only Kraken pairs here; CC_ pairs are loaded via TryDownloadCryptoCompareAsync)
+        if (!cacheKey.StartsWith("CC_", StringComparison.OrdinalIgnoreCase))
+            await TryDownloadKrakenPairAsync(cacheKey, earliest, ct);
     }
 
     private async Task DownloadAndAppendAsync(string krakenPair, long sinceTimestamp, CancellationToken ct)
@@ -536,7 +777,6 @@ public class FxConversionService
             {
                 foreach (var candle in candles)
                     existing[candle.Timestamp] = candle.Close;
-
                 SaveToCache(krakenPair, existing);
             }
         }
@@ -546,30 +786,26 @@ public class FxConversionService
         }
     }
 
-    private bool TryLoadFromCache(string krakenPair)
+    private bool TryLoadFromCache(string cacheKey)
     {
-        var cachePath = Path.Combine(CacheFolder, $"{krakenPair}.json");
+        var cachePath = Path.Combine(CacheFolder, $"{cacheKey}.json");
         if (!File.Exists(cachePath)) return false;
 
         try
         {
             var json = File.ReadAllText(cachePath);
-
-            // Try new format first (timestamp-based)
             var entries = JsonSerializer.Deserialize<Dictionary<string, decimal>>(json);
             if (entries == null || entries.Count == 0) return false;
 
             var rates = new SortedList<long, decimal>();
             foreach (var (key, rate) in entries)
             {
-                // Support both formats: unix timestamp string or date string
                 if (long.TryParse(key, out var ts))
                 {
                     rates[ts] = rate;
                 }
                 else if (DateOnly.TryParse(key, out var date))
                 {
-                    // Legacy format: convert date to midnight UTC timestamp
                     var dto = new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
                     rates[dto.ToUnixTimeSeconds()] = rate;
                 }
@@ -577,7 +813,13 @@ public class FxConversionService
 
             if (rates.Count == 0) return false;
 
-            _rateCache[krakenPair] = rates;
+            _rateCache[cacheKey] = rates;
+
+            // Infer source from cache key naming
+            if (!_pairSources.ContainsKey(cacheKey))
+                _pairSources[cacheKey] = cacheKey.StartsWith("CC_", StringComparison.OrdinalIgnoreCase)
+                    ? "CryptoCompare" : "Kraken";
+
             return true;
         }
         catch
@@ -586,17 +828,65 @@ public class FxConversionService
         }
     }
 
-    private void SaveToCache(string krakenPair, SortedList<long, decimal> rates)
+    private void SaveToCache(string cacheKey, SortedList<long, decimal> rates)
     {
         try
         {
+            Directory.CreateDirectory(CacheFolder);
             var dict = rates.ToDictionary(r => r.Key.ToString(), r => r.Value);
             var json = JsonSerializer.Serialize(dict, new JsonSerializerOptions { WriteIndented = false });
-            File.WriteAllText(Path.Combine(CacheFolder, $"{krakenPair}.json"), json);
+            var path = Path.Combine(CacheFolder, $"{cacheKey}.json");
+            File.WriteAllText(path, json);
         }
-        catch
+        catch (Exception ex)
         {
-            // Non-critical
+            _warnings.Add(new CalculationWarning
+            {
+                Level = WarningLevel.Warning,
+                Category = "FX Cache",
+                Message = $"Failed to save FX cache for {cacheKey}: {ex.Message}"
+            });
         }
     }
+
+    /// <summary>
+    /// Returns information about all cached FX rate pairs.
+    /// </summary>
+    public List<FxCacheInfo> GetCacheStats()
+    {
+        var results = new List<FxCacheInfo>();
+
+        foreach (var (pair, rates) in _rateCache)
+        {
+            if (rates.Count == 0) continue;
+
+            _pairSources.TryGetValue(pair, out var source);
+
+            results.Add(new FxCacheInfo
+            {
+                PairName = pair,
+                DataPoints = rates.Count,
+                EarliestDate = DateTimeOffset.FromUnixTimeSeconds(rates.Keys.First()),
+                LatestDate = DateTimeOffset.FromUnixTimeSeconds(rates.Keys.Last()),
+                SampleRate = rates.Values.Last(),
+                OnDisk = File.Exists(Path.Combine(CacheFolder, $"{pair}.json")),
+                DataSource = source ?? "Unknown"
+            });
+        }
+
+        return results.OrderBy(r => r.PairName).ToList();
+    }
+
+    public string CacheFolderPath => CacheFolder;
+}
+
+public class FxCacheInfo
+{
+    public string PairName { get; set; } = "";
+    public int DataPoints { get; set; }
+    public DateTimeOffset EarliestDate { get; set; }
+    public DateTimeOffset LatestDate { get; set; }
+    public decimal SampleRate { get; set; }
+    public bool OnDisk { get; set; }
+    public string DataSource { get; set; } = "";
 }

@@ -33,6 +33,10 @@ public class TaxYearSummary
     public decimal StakingIncome { get; set; }
     public List<StakingReward> StakingRewards { get; set; } = new();
 
+    // Portfolio balance snapshots at tax year boundaries
+    public BalanceSnapshot StartOfYearBalances { get; set; } = new();
+    public BalanceSnapshot EndOfYearBalances { get; set; } = new();
+
     // Warnings and data issues
     public List<CalculationWarning> Warnings { get; set; } = new();
 }

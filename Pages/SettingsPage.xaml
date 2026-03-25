@@ -32,6 +32,7 @@
 
             <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
 
+            <!-- ========== LEDGER ========== -->
             <TextBlock Text="Ledger Data" Style="{StaticResource TitleTextBlockStyle}" />
 
             <StackPanel x:Name="TradeInfoPanel" Spacing="4">
@@ -54,6 +55,28 @@
 
             <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
 
+            <!-- ========== FX RATES ========== -->
+            <TextBlock Text="FX Rate Data" Style="{StaticResource TitleTextBlockStyle}" />
+
+            <StackPanel x:Name="FxInfoPanel" Spacing="4">
+                <TextBlock x:Name="FxStatusText" Text="No FX rates loaded." />
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button x:Name="FxDownloadBtn" Content="Download FX Rates"
+                        Style="{StaticResource AccentButtonStyle}"
+                        Click="DownloadFxRates_Click" />
+            </StackPanel>
+            <TextBlock x:Name="FxInfoNote" Text="Downloads exchange rates for every asset in your ledger. Requires ledger data first."
+                       Opacity="0.6" FontStyle="Italic" TextWrapping="Wrap" />
+
+            <ProgressBar x:Name="FxProgress" IsIndeterminate="False" Visibility="Collapsed"
+                         Width="500" HorizontalAlignment="Left" />
+            <TextBlock x:Name="FxProgressText" Text="" Visibility="Collapsed" />
+
+            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
+
+            <!-- ========== SUMMARY ========== -->
             <TextBlock Text="Ledger Summary" Style="{StaticResource TitleTextBlockStyle}" />
 
             <StackPanel x:Name="TradeSummaryPanel" Spacing="4">
