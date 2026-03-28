@@ -14,7 +14,9 @@
       "Bash(echo \"$LOCALAPPDATA\")",
       "Read(//c/Code/CryptoTax2026/$LOCALAPPDATA/**)",
       "Read(//c/Users/passp/AppData/Local/**)",
-      "Read(//c/Users/passp/AppData/**)"
+      "Read(//c/Users/passp/AppData/**)",
+      "Bash(git grep:*)",
+      "Bash(git log:*)"
     ]
   }
 }

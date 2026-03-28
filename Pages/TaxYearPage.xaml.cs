@@ -52,6 +52,7 @@ public sealed partial class TaxYearPage : Page
         LoadDisposals();
         LoadWarnings();
         LoadStaking();
+        SetupWhatIf();
     }
 
     private void UpdateSummaryDisplay()
@@ -224,6 +225,178 @@ public sealed partial class TaxYearPage : Page
             _mainWindow.Settings.TaxYearInputs[_summary.TaxYear] = input;
         }
         return input;
+    }
+
+    // ========== What-If Scenario ==========
+
+    private void SetupWhatIf()
+    {
+        if (_summary == null) return;
+
+        // Show what-if panel only for tax years that haven't ended yet
+        var endYear = _summary.StartYear + 1;
+        var taxYearEnd = new DateTimeOffset(endYear, 4, 5, 23, 59, 59, TimeSpan.Zero);
+        WhatIfPanel.Visibility = DateTimeOffset.Now <= taxYearEnd ? Visibility.Visible : Visibility.Collapsed;
+
+        // Default the date picker to today
+        WhatIfDatePicker.Date = DateTimeOffset.Now;
+    }
+
+    private void WhatIfCalculate_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mainWindow == null || _summary == null || _mainWindow.FxService == null) return;
+
+        var asset = WhatIfAssetBox.Text.Trim().ToUpperInvariant();
+        if (string.IsNullOrEmpty(asset))
+        {
+            ShowWhatIfError("Enter an asset name (e.g. XRP, BTC, ETH).");
+            return;
+        }
+
+        var price = WhatIfPriceBox.Value;
+        var quantity = WhatIfQuantityBox.Value;
+        if (double.IsNaN(price) || price <= 0 || double.IsNaN(quantity) || quantity <= 0)
+        {
+            ShowWhatIfError("Enter a valid price and quantity.");
+            return;
+        }
+
+        if (!WhatIfDatePicker.Date.HasValue)
+        {
+            ShowWhatIfError("Select a sale date.");
+            return;
+        }
+
+        var saleDate = new DateTimeOffset(WhatIfDatePicker.Date.Value.DateTime, TimeSpan.Zero);
+        var saleTaxYear = CgtCalculationService.GetTaxYearLabel(saleDate);
+        if (saleTaxYear != _summary.TaxYear)
+        {
+            ShowWhatIfError($"The date {saleDate:dd/MM/yyyy} falls in tax year {saleTaxYear}, not {_summary.TaxYear}.");
+            return;
+        }
+
+        var currency = (WhatIfCurrencyBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "USD";
+        var decimalPrice = (decimal)price;
+        var decimalQty = (decimal)quantity;
+
+        // Convert sale proceeds to GBP
+        decimal proceedsInCurrency = decimalPrice * decimalQty;
+        decimal proceedsGbp;
+        if (currency == "GBP")
+            proceedsGbp = proceedsInCurrency;
+        else
+            proceedsGbp = _mainWindow.FxService.ConvertToGbp(proceedsInCurrency, currency, saleDate);
+
+        if (proceedsGbp <= 0)
+        {
+            ShowWhatIfError($"Could not convert {currency} to GBP for that date. Download FX rates first.");
+            return;
+        }
+
+        // Build synthetic ledger entries for the hypothetical trade
+        var unixTime = saleDate.ToUnixTimeSeconds();
+        var syntheticRefId = "WHATIF-" + Guid.NewGuid().ToString("N")[..8];
+
+        var cryptoEntry = new KrakenLedgerEntry
+        {
+            RefId = syntheticRefId,
+            Time = unixTime,
+            Type = "trade",
+            SubType = "tradespot",
+            Asset = asset,
+            AmountStr = (-decimalQty).ToString(),
+            FeeStr = "0",
+            LedgerId = "WHATIF-CRYPTO",
+            NormalisedAsset = KrakenLedgerEntry.NormaliseAssetName(asset)
+        };
+
+        var fiatEntry = new KrakenLedgerEntry
+        {
+            RefId = syntheticRefId,
+            Time = unixTime,
+            Type = "trade",
+            SubType = "tradespot",
+            Asset = currency,
+            AmountStr = proceedsInCurrency.ToString(),
+            FeeStr = "0",
+            LedgerId = "WHATIF-FIAT",
+            NormalisedAsset = currency
+        };
+
+        // Clone the ledger and add synthetic entries
+        var tempLedger = new List<KrakenLedgerEntry>(_mainWindow.Ledger) { cryptoEntry, fiatEntry };
+
+        // Run the full CGT calculation with the hypothetical trade included
+        var tempWarnings = new List<CalculationWarning>();
+        var tempCgtService = new CgtCalculationService(_mainWindow.FxService, tempWarnings, _mainWindow.Trades);
+        var tempSummaries = tempCgtService.CalculateAllTaxYears(tempLedger, _mainWindow.Settings.TaxYearInputs);
+
+        var whatIfSummary = tempSummaries.FirstOrDefault(s => s.TaxYear == _summary.TaxYear);
+        if (whatIfSummary == null)
+        {
+            ShowWhatIfError("Could not calculate what-if scenario.");
+            return;
+        }
+
+        // Display comparison
+        WhatIfInfoBar.IsOpen = false;
+        WhatIfResultsPanel.Visibility = Visibility.Visible;
+
+        WhatIfTradeDescription.Text = $"Sell {decimalQty:#,##0.########} {asset} at {decimalPrice:#,##0.########} {currency}/unit " +
+                                      $"on {saleDate:dd/MM/yyyy} — proceeds {FormatGbp(proceedsGbp)}";
+
+        // Find the what-if disposal to show cost basis
+        var whatIfDisposal = whatIfSummary.Disposals.FirstOrDefault(d => d.TradeId == syntheticRefId);
+        if (whatIfDisposal != null)
+            WhatIfTradeSummary.Text = $"Proceeds: {FormatGbp(whatIfDisposal.DisposalProceeds)}, Cost: {FormatGbp(whatIfDisposal.AllowableCost)}, Gain: {FormatGbp(whatIfDisposal.GainOrLoss)}";
+        else
+            WhatIfTradeSummary.Text = "";
+
+        var currentNet = _summary.TotalGains + _summary.TotalLosses;
+        var newNet = whatIfSummary.TotalGains + whatIfSummary.TotalLosses;
+
+        WhatIfCurrentNet.Text = FormatGbp(currentNet);
+        WhatIfNewNet.Text = FormatGbp(newNet);
+        WhatIfDiffNet.Text = FormatDiff(newNet - currentNet);
+
+        WhatIfCurrentTaxable.Text = FormatGbp(_summary.TaxableGain);
+        WhatIfNewTaxable.Text = FormatGbp(whatIfSummary.TaxableGain);
+        WhatIfDiffTaxable.Text = FormatDiff(whatIfSummary.TaxableGain - _summary.TaxableGain);
+
+        WhatIfCurrentCgt.Text = FormatGbp(_summary.CgtDue);
+        WhatIfNewCgt.Text = FormatGbp(whatIfSummary.CgtDue);
+        WhatIfDiffCgt.Text = FormatDiff(whatIfSummary.CgtDue - _summary.CgtDue);
+        WhatIfDiffCgt.Foreground = whatIfSummary.CgtDue > _summary.CgtDue
+            ? new SolidColorBrush(Colors.Red)
+            : new SolidColorBrush(Colors.Green);
+    }
+
+    private void WhatIfClear_Click(object sender, RoutedEventArgs e)
+    {
+        WhatIfAssetBox.Text = "";
+        WhatIfPriceBox.Value = double.NaN;
+        WhatIfQuantityBox.Value = double.NaN;
+        WhatIfDatePicker.Date = DateTimeOffset.Now;
+        WhatIfCurrencyBox.SelectedIndex = 0;
+        WhatIfResultsPanel.Visibility = Visibility.Collapsed;
+        WhatIfInfoBar.IsOpen = false;
+    }
+
+    private void ShowWhatIfError(string message)
+    {
+        WhatIfInfoBar.Message = message;
+        WhatIfInfoBar.Severity = InfoBarSeverity.Warning;
+        WhatIfInfoBar.IsOpen = true;
+        WhatIfResultsPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private static string FormatDiff(decimal diff)
+    {
+        if (diff == 0) return "no change";
+        var sign = diff > 0 ? "+" : "";
+        return diff < 0
+            ? $"-£{Math.Abs(diff):#,##0.00}"
+            : $"+£{diff:#,##0.00}";
     }
 
     // ========== Export handlers ==========
