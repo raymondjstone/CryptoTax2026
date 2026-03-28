@@ -330,11 +330,15 @@
                     CornerRadius="8" Padding="20" BorderBrush="{ThemeResource SystemFillColorAttentionBrush}"
                     BorderThickness="1">
                 <StackPanel Spacing="12">
-                    <TextBlock Text="What If? — Hypothetical Trade Scenario" Style="{StaticResource SubtitleTextBlockStyle}" />
-                    <TextBlock Text="Model a hypothetical sale to see how it would affect your tax liability for this year. This is a simulation only — nothing is saved."
+                    <TextBlock Text="What If? — Hypothetical Trade Scenarios" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock Text="Add one or more hypothetical trades (buys or sells) to see how they would affect your tax liability for this year. This is a simulation only — nothing is saved."
                                TextWrapping="Wrap" Opacity="0.7" />
 
                     <StackPanel Orientation="Horizontal" Spacing="12">
+                        <ComboBox x:Name="WhatIfSideBox" Header="Side" Width="80" SelectedIndex="0">
+                            <ComboBoxItem Content="Sell" />
+                            <ComboBoxItem Content="Buy" />
+                        </ComboBox>
                         <TextBox x:Name="WhatIfAssetBox" Header="Asset" PlaceholderText="e.g. XRP" Width="100" />
                         <ComboBox x:Name="WhatIfCurrencyBox" Header="Price Currency" Width="100" SelectedIndex="0">
                             <ComboBoxItem Content="USD" />
@@ -349,12 +353,38 @@
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button x:Name="WhatIfCalculateBtn" Content="Calculate What-If" Click="WhatIfCalculate_Click"
+                        <Button x:Name="WhatIfAddBtn" Content="Add Trade" Click="WhatIfAdd_Click"
                                 Style="{StaticResource AccentButtonStyle}" />
-                        <Button x:Name="WhatIfClearBtn" Content="Clear" Click="WhatIfClear_Click" />
+                        <Button x:Name="WhatIfCalculateBtn" Content="Calculate" Click="WhatIfCalculate_Click" IsEnabled="False" />
+                        <Button x:Name="WhatIfClearBtn" Content="Clear All" Click="WhatIfClear_Click" />
                     </StackPanel>
 
                     <InfoBar x:Name="WhatIfInfoBar" IsOpen="False" />
+
+                    <!-- Pending What-If Trades List -->
+                    <Border x:Name="WhatIfTradesPanel" Visibility="Collapsed"
+                            Background="{ThemeResource SubtleFillColorTertiaryBrush}"
+                            CornerRadius="6" Padding="12">
+                        <StackPanel Spacing="4">
+                            <TextBlock x:Name="WhatIfTradesHeader" Text="Hypothetical Trades" FontWeight="SemiBold" />
+                            <ListView x:Name="WhatIfTradesList" SelectionMode="None" IsItemClickEnabled="False">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Padding="4,2" ColumnSpacing="8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{Binding Description}" VerticalAlignment="Center" />
+                                            <Button Grid.Column="1" Content="&#xE711;" FontFamily="Segoe MDL2 Assets"
+                                                    Click="WhatIfRemoveTrade_Click" Tag="{Binding Index}"
+                                                    Padding="4,2" Background="Transparent" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                        </StackPanel>
+                    </Border>
 
                     <!-- What-If Results -->
                     <Border x:Name="WhatIfResultsPanel" Visibility="Collapsed"
@@ -378,7 +408,7 @@
 
                                 <!-- Header row -->
                                 <TextBlock Grid.Row="0" Grid.Column="1" Text="Current" FontWeight="SemiBold" />
-                                <TextBlock Grid.Row="0" Grid.Column="2" Text="With Trade" FontWeight="SemiBold" />
+                                <TextBlock Grid.Row="0" Grid.Column="2" Text="With Trades" FontWeight="SemiBold" />
                                 <TextBlock Grid.Row="0" Grid.Column="3" Text="Difference" FontWeight="SemiBold" />
 
                                 <TextBlock Grid.Row="1" Text="Net gain/loss" />
@@ -399,8 +429,9 @@
                                 <TextBlock Grid.Row="4" Grid.Column="2" x:Name="WhatIfNewCgt" FontWeight="Bold" />
                                 <TextBlock Grid.Row="4" Grid.Column="3" x:Name="WhatIfDiffCgt" FontWeight="Bold" />
 
-                                <TextBlock Grid.Row="5" Text="Disposal proceeds / cost" Opacity="0.7" />
-                                <TextBlock Grid.Row="5" Grid.Column="1" x:Name="WhatIfTradeSummary" Opacity="0.7" TextWrapping="Wrap" />
+                                <TextBlock Grid.Row="5" Text="Disposal details" Opacity="0.7" />
+                                <TextBlock Grid.Row="5" Grid.Column="1" x:Name="WhatIfTradeSummary" Opacity="0.7" TextWrapping="Wrap"
+                                           Grid.ColumnSpan="3" />
                             </Grid>
                         </StackPanel>
                     </Border>

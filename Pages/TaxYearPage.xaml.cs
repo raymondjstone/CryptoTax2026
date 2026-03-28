@@ -229,6 +229,8 @@ public sealed partial class TaxYearPage : Page
 
     // ========== What-If Scenario ==========
 
+    private readonly List<WhatIfTrade> _whatIfTrades = new();
+
     private void SetupWhatIf()
     {
         if (_summary == null) return;
@@ -240,9 +242,10 @@ public sealed partial class TaxYearPage : Page
 
         // Default the date picker to today
         WhatIfDatePicker.Date = DateTimeOffset.Now;
+        UpdateWhatIfTradesList();
     }
 
-    private void WhatIfCalculate_Click(object sender, RoutedEventArgs e)
+    private void WhatIfAdd_Click(object sender, RoutedEventArgs e)
     {
         if (_mainWindow == null || _summary == null || _mainWindow.FxService == null) return;
 
@@ -276,57 +279,117 @@ public sealed partial class TaxYearPage : Page
         }
 
         var currency = (WhatIfCurrencyBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "USD";
-        var decimalPrice = (decimal)price;
-        var decimalQty = (decimal)quantity;
+        var isBuy = (WhatIfSideBox.SelectedItem as ComboBoxItem)?.Content?.ToString() == "Buy";
 
-        // Convert sale proceeds to GBP
-        decimal proceedsInCurrency = decimalPrice * decimalQty;
-        decimal proceedsGbp;
-        if (currency == "GBP")
-            proceedsGbp = proceedsInCurrency;
-        else
-            proceedsGbp = _mainWindow.FxService.ConvertToGbp(proceedsInCurrency, currency, saleDate);
-
-        if (proceedsGbp <= 0)
+        _whatIfTrades.Add(new WhatIfTrade
         {
-            ShowWhatIfError($"Could not convert {currency} to GBP for that date. Download FX rates first.");
-            return;
+            Asset = asset,
+            Currency = currency,
+            Price = (decimal)price,
+            Quantity = (decimal)quantity,
+            Date = saleDate,
+            IsBuy = isBuy
+        });
+
+        // Clear inputs for next trade
+        WhatIfAssetBox.Text = "";
+        WhatIfPriceBox.Value = double.NaN;
+        WhatIfQuantityBox.Value = double.NaN;
+        WhatIfSideBox.SelectedIndex = 0;
+        WhatIfInfoBar.IsOpen = false;
+        WhatIfResultsPanel.Visibility = Visibility.Collapsed;
+
+        UpdateWhatIfTradesList();
+    }
+
+    private void WhatIfRemoveTrade_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is int index && index >= 0 && index < _whatIfTrades.Count)
+        {
+            _whatIfTrades.RemoveAt(index);
+            WhatIfResultsPanel.Visibility = Visibility.Collapsed;
+            UpdateWhatIfTradesList();
+        }
+    }
+
+    private void UpdateWhatIfTradesList()
+    {
+        var hasTrades = _whatIfTrades.Count > 0;
+        WhatIfTradesPanel.Visibility = hasTrades ? Visibility.Visible : Visibility.Collapsed;
+        WhatIfCalculateBtn.IsEnabled = hasTrades;
+        WhatIfTradesHeader.Text = $"Hypothetical Trades ({_whatIfTrades.Count})";
+
+        WhatIfTradesList.ItemsSource = _whatIfTrades
+            .Select((t, i) => new WhatIfTradeViewModel(t, i))
+            .ToList();
+    }
+
+    private void WhatIfCalculate_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mainWindow == null || _summary == null || _mainWindow.FxService == null) return;
+        if (_whatIfTrades.Count == 0) return;
+
+        // Clone the ledger
+        var tempLedger = new List<KrakenLedgerEntry>(_mainWindow.Ledger);
+        var syntheticRefIds = new List<string>();
+        var tradeDescriptions = new List<string>();
+
+        foreach (var trade in _whatIfTrades)
+        {
+            // Convert sale proceeds to GBP
+            decimal proceedsInCurrency = trade.Price * trade.Quantity;
+            decimal proceedsGbp;
+            if (trade.Currency == "GBP")
+                proceedsGbp = proceedsInCurrency;
+            else
+                proceedsGbp = _mainWindow.FxService.ConvertToGbp(proceedsInCurrency, trade.Currency, trade.Date);
+
+            if (proceedsGbp <= 0)
+            {
+                ShowWhatIfError($"Could not convert {trade.Currency} to GBP for {trade.Asset} trade on {trade.Date:dd/MM/yyyy}. Download FX rates first.");
+                return;
+            }
+
+            var unixTime = trade.Date.ToUnixTimeSeconds();
+            var syntheticRefId = "WHATIF-" + Guid.NewGuid().ToString("N")[..8];
+            syntheticRefIds.Add(syntheticRefId);
+
+            // Buy: +crypto, -fiat. Sell: -crypto, +fiat.
+            var cryptoAmount = trade.IsBuy ? trade.Quantity : -trade.Quantity;
+            var fiatAmount = trade.IsBuy ? -proceedsInCurrency : proceedsInCurrency;
+
+            tempLedger.Add(new KrakenLedgerEntry
+            {
+                RefId = syntheticRefId,
+                Time = unixTime,
+                Type = "trade",
+                SubType = "tradespot",
+                Asset = trade.Asset,
+                AmountStr = cryptoAmount.ToString(),
+                FeeStr = "0",
+                LedgerId = "WHATIF-CRYPTO",
+                NormalisedAsset = KrakenLedgerEntry.NormaliseAssetName(trade.Asset)
+            });
+
+            tempLedger.Add(new KrakenLedgerEntry
+            {
+                RefId = syntheticRefId,
+                Time = unixTime,
+                Type = "trade",
+                SubType = "tradespot",
+                Asset = trade.Currency,
+                AmountStr = fiatAmount.ToString(),
+                FeeStr = "0",
+                LedgerId = "WHATIF-FIAT",
+                NormalisedAsset = trade.Currency
+            });
+
+            var side = trade.IsBuy ? "Buy" : "Sell";
+            var costOrProceeds = trade.IsBuy ? "cost" : "proceeds";
+            tradeDescriptions.Add($"{side} {trade.Quantity:#,##0.########} {trade.Asset} at {trade.Price:#,##0.########} {trade.Currency}/unit on {trade.Date:dd/MM/yyyy} — {costOrProceeds} {FormatGbp(proceedsGbp)}");
         }
 
-        // Build synthetic ledger entries for the hypothetical trade
-        var unixTime = saleDate.ToUnixTimeSeconds();
-        var syntheticRefId = "WHATIF-" + Guid.NewGuid().ToString("N")[..8];
-
-        var cryptoEntry = new KrakenLedgerEntry
-        {
-            RefId = syntheticRefId,
-            Time = unixTime,
-            Type = "trade",
-            SubType = "tradespot",
-            Asset = asset,
-            AmountStr = (-decimalQty).ToString(),
-            FeeStr = "0",
-            LedgerId = "WHATIF-CRYPTO",
-            NormalisedAsset = KrakenLedgerEntry.NormaliseAssetName(asset)
-        };
-
-        var fiatEntry = new KrakenLedgerEntry
-        {
-            RefId = syntheticRefId,
-            Time = unixTime,
-            Type = "trade",
-            SubType = "tradespot",
-            Asset = currency,
-            AmountStr = proceedsInCurrency.ToString(),
-            FeeStr = "0",
-            LedgerId = "WHATIF-FIAT",
-            NormalisedAsset = currency
-        };
-
-        // Clone the ledger and add synthetic entries
-        var tempLedger = new List<KrakenLedgerEntry>(_mainWindow.Ledger) { cryptoEntry, fiatEntry };
-
-        // Run the full CGT calculation with the hypothetical trade included
+        // Run the full CGT calculation with all hypothetical trades
         var tempWarnings = new List<CalculationWarning>();
         var tempCgtService = new CgtCalculationService(_mainWindow.FxService, tempWarnings, _mainWindow.Trades);
         var tempSummaries = tempCgtService.CalculateAllTaxYears(tempLedger, _mainWindow.Settings.TaxYearInputs);
@@ -342,15 +405,17 @@ public sealed partial class TaxYearPage : Page
         WhatIfInfoBar.IsOpen = false;
         WhatIfResultsPanel.Visibility = Visibility.Visible;
 
-        WhatIfTradeDescription.Text = $"Sell {decimalQty:#,##0.########} {asset} at {decimalPrice:#,##0.########} {currency}/unit " +
-                                      $"on {saleDate:dd/MM/yyyy} — proceeds {FormatGbp(proceedsGbp)}";
+        WhatIfTradeDescription.Text = string.Join("\n", tradeDescriptions);
 
-        // Find the what-if disposal to show cost basis
-        var whatIfDisposal = whatIfSummary.Disposals.FirstOrDefault(d => d.TradeId == syntheticRefId);
-        if (whatIfDisposal != null)
-            WhatIfTradeSummary.Text = $"Proceeds: {FormatGbp(whatIfDisposal.DisposalProceeds)}, Cost: {FormatGbp(whatIfDisposal.AllowableCost)}, Gain: {FormatGbp(whatIfDisposal.GainOrLoss)}";
-        else
-            WhatIfTradeSummary.Text = "";
+        // Show disposal details for each what-if trade
+        var disposalDetails = new List<string>();
+        foreach (var refId in syntheticRefIds)
+        {
+            var disposal = whatIfSummary.Disposals.FirstOrDefault(d => d.TradeId == refId);
+            if (disposal != null)
+                disposalDetails.Add($"{disposal.Asset}: Proceeds {FormatGbp(disposal.DisposalProceeds)}, Cost {FormatGbp(disposal.AllowableCost)}, Gain {FormatGbp(disposal.GainOrLoss)}");
+        }
+        WhatIfTradeSummary.Text = disposalDetails.Count > 0 ? string.Join("\n", disposalDetails) : "";
 
         var currentNet = _summary.TotalGains + _summary.TotalLosses;
         var newNet = whatIfSummary.TotalGains + whatIfSummary.TotalLosses;
@@ -378,6 +443,9 @@ public sealed partial class TaxYearPage : Page
         WhatIfQuantityBox.Value = double.NaN;
         WhatIfDatePicker.Date = DateTimeOffset.Now;
         WhatIfCurrencyBox.SelectedIndex = 0;
+        WhatIfSideBox.SelectedIndex = 0;
+        _whatIfTrades.Clear();
+        UpdateWhatIfTradesList();
         WhatIfResultsPanel.Visibility = Visibility.Collapsed;
         WhatIfInfoBar.IsOpen = false;
     }
@@ -393,7 +461,6 @@ public sealed partial class TaxYearPage : Page
     private static string FormatDiff(decimal diff)
     {
         if (diff == 0) return "no change";
-        var sign = diff > 0 ? "+" : "";
         return diff < 0
             ? $"-£{Math.Abs(diff):#,##0.00}"
             : $"+£{diff:#,##0.00}";
@@ -553,4 +620,35 @@ public class StakingViewModel
     public string GbpFormatted => _reward.GbpValue < 0
         ? $"-£{Math.Abs(_reward.GbpValue):#,##0.00}"
         : $"£{_reward.GbpValue:#,##0.00}";
+}
+
+public class WhatIfTrade
+{
+    public string Asset { get; set; } = "";
+    public string Currency { get; set; } = "USD";
+    public decimal Price { get; set; }
+    public decimal Quantity { get; set; }
+    public DateTimeOffset Date { get; set; }
+    public bool IsBuy { get; set; }
+}
+
+public class WhatIfTradeViewModel
+{
+    private readonly WhatIfTrade _trade;
+
+    public WhatIfTradeViewModel(WhatIfTrade trade, int index)
+    {
+        _trade = trade;
+        Index = index;
+    }
+
+    public int Index { get; }
+    public string Description
+    {
+        get
+        {
+            var side = _trade.IsBuy ? "Buy" : "Sell";
+            return $"{side} {_trade.Quantity:#,##0.########} {_trade.Asset} at {_trade.Price:#,##0.########} {_trade.Currency} on {_trade.Date:dd/MM/yyyy}";
+        }
+    }
 }
