@@ -157,4 +157,11 @@ public class TradeStorageService
     }
 
     public string GetDataFolderPath() => AppDataFolder;
+
+    public void DeleteFxCache()
+    {
+        var fxCacheFolder = Path.Combine(AppDataFolder, "fx_cache");
+        if (Directory.Exists(fxCacheFolder))
+            Directory.Delete(fxCacheFolder, recursive: true);
+    }
 }

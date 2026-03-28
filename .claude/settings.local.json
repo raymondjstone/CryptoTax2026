@@ -10,7 +10,11 @@
       "WebSearch",
       "WebFetch(domain:support.kraken.com)",
       "WebFetch(domain:docs.kraken.com)",
-      "Bash(dotnet test:*)"
+      "Bash(dotnet test:*)",
+      "Bash(echo \"$LOCALAPPDATA\")",
+      "Read(//c/Code/CryptoTax2026/$LOCALAPPDATA/**)",
+      "Read(//c/Users/passp/AppData/Local/**)",
+      "Read(//c/Users/passp/AppData/**)"
     ]
   }
 }

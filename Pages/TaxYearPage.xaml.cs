@@ -175,6 +175,27 @@ public sealed partial class TaxYearPage : Page
             .ToList();
     }
 
+    private void CopyWarnings_Click(object sender, RoutedEventArgs e)
+    {
+        if (_summary?.Warnings == null || _summary.Warnings.Count == 0) return;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Data Issues — {_summary.TaxYear}");
+        sb.AppendLine($"Generated: {DateTimeOffset.Now:dd/MM/yyyy HH:mm}");
+        sb.AppendLine();
+
+        foreach (var w in _summary.Warnings.OrderByDescending(w => w.Level).ThenBy(w => w.Date))
+        {
+            var level = w.Level == WarningLevel.Error ? "ERROR  " : w.Level == WarningLevel.Warning ? "WARNING" : "INFO   ";
+            var date = w.Date.HasValue ? w.Date.Value.ToString("dd/MM/yyyy HH:mm") : "          ";
+            sb.AppendLine($"[{level}] {w.Category,-10} {date}  {w.Message}");
+        }
+
+        var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        dp.SetText(sb.ToString());
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+    }
+
     private void LoadStaking()
     {
         if (_summary == null || _summary.StakingRewards.Count == 0)

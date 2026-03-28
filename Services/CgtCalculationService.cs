@@ -9,11 +9,13 @@ public class CgtCalculationService
 {
     private readonly FxConversionService _fxService;
     private readonly List<CalculationWarning> _warnings;
+    private readonly List<KrakenTrade> _trades;
 
-    public CgtCalculationService(FxConversionService fxService, List<CalculationWarning> warnings)
+    public CgtCalculationService(FxConversionService fxService, List<CalculationWarning> warnings, List<KrakenTrade>? trades = null)
     {
         _fxService = fxService;
         _warnings = warnings;
+        _trades = trades ?? new();
     }
 
     /// <summary>
@@ -36,11 +38,21 @@ public class CgtCalculationService
         "creator_fee" // NFT creator fees
     };
 
-    // Ledger subtypes that are staking-related internal moves (not taxable)
+    // Ledger subtypes that are staking-related internal moves (not taxable).
+    // Covers classic Kraken staking, futures, Earn (flex/bonded), and parachain bonding.
     private static readonly HashSet<string> StakingTransferSubtypes = new(StringComparer.OrdinalIgnoreCase)
     {
+        // Classic staking ↔ spot
         "spotfromstaking", "stakingfromspot", "spottostaking", "stakingtospot",
-        "spotfromfutures", "futuresfromspot", "spottofutures", "futurestospot"
+        // Futures ↔ spot
+        "spotfromfutures", "futuresfromspot", "spottofutures", "futurestospot",
+        // Kraken Earn flex product ↔ spot
+        "spotfromearnflex", "earnflexfromspot", "spottoearnflex", "earnflextospotspot",
+        "earnfromspot", "spotfromearn", "spottoearn", "earntospot",
+        // Bonded staking ↔ spot
+        "spotfrombonding", "bondingfromspot", "spottobonding", "bondingtospot",
+        // Parachain crowdloan/slot auction
+        "spotfromparachain", "parachainfromspot", "spottoparachain", "parachaintospot",
     };
 
     public List<TaxYearSummary> CalculateAllTaxYears(
@@ -72,200 +84,154 @@ public class CgtCalculationService
         // Group ledger entries by refid — a trade will have 2+ entries with the same refid
         // (e.g., -0.5 ETH and +500 GBP for selling ETH)
         // Exclude non-taxable types (transfers, margin, rollover etc.)
-        var tradeEntries = ledger
-            .Where(e => e.Type == "trade")
+        // Include "spend" and "receive" types alongside "trade" — Kraken records some
+        // transactions (Instant Buy, Convert) with one leg as "spend" and the other as "receive"
+        // rather than both as "trade". They share the same refid, so grouping all three
+        // types together correctly reconstructs the full trade.
+        // Include "conversion" — Kraken records some token migrations (e.g. MATIC→POL) as conversions.
+        // Include "adjustment" — Kraken also records token migrations as paired balance adjustments
+        // (e.g. MATIC −8171 / POL +8171, same refid). Both types reach ProcessTradeGroup where
+        // the distinctAssets guard returns early for same-asset cases and handles cross-asset pairs
+        // as disposal + acquisition so the S104 pool transfers correctly.
+        // Include "sale" — Kraken Instant Sell records the crypto leg as type=sale in some regions.
+        var filteredByRefId = ledger
+            .Where(e => e.Type == "trade" || e.Type == "spend" || e.Type == "receive"
+                     || e.Type == "conversion" || e.Type == "adjustment" || e.Type == "sale")
             .Where(e => !StakingTransferSubtypes.Contains(e.SubType))
-            .GroupBy(e => e.RefId)
-            .ToList();
+            .GroupBy(e => e.RefId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.OrderBy(e => e.Time).ToList(), StringComparer.OrdinalIgnoreCase);
 
-        foreach (var group in tradeEntries)
+        // Build order-level lookups from trade history so we can resolve partial-fill ledger gaps.
+        // When a large order fills simultaneously across multiple price levels, Kraken sometimes
+        // creates one combined quote-side entry (GBP) for the whole order while creating individual
+        // crypto entries per fill — leaving some fills with only 1 ledger entry.
+        // Grouping by ordertxid recovers the full picture.
+        var tradeById = _trades.ToDictionary(t => t.TradeId, t => t, StringComparer.OrdinalIgnoreCase);
+        var orderToFillIds = _trades
+            .Where(t => !string.IsNullOrEmpty(t.OrderTxId))
+            .GroupBy(t => t.OrderTxId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(t => t.TradeId).ToHashSet(StringComparer.OrdinalIgnoreCase),
+                StringComparer.OrdinalIgnoreCase);
+
+        // Pre-pass: find refids that need order-level grouping and build combined entry sets.
+        var refIdsHandledAtOrderLevel = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var orderLevelGroups = new List<(string OrderId, List<KrakenLedgerEntry> Entries)>();
+
+        foreach (var (refId, refEntries) in filteredByRefId)
         {
-            var entries = group.OrderBy(e => e.Time).ToList();
-            if (entries.Count < 2)
-            {
-                _warnings.Add(new CalculationWarning
-                {
-                    Level = WarningLevel.Warning,
-                    Category = "Ledger",
-                    Message = $"Trade refid {group.Key} has only {entries.Count} ledger entry (expected 2+). Skipping.",
-                    Date = entries.FirstOrDefault()?.DateTime,
-                    LedgerId = entries.FirstOrDefault()?.LedgerId
-                });
-                continue;
-            }
+            if (refEntries.Count >= 2) continue; // sufficient as-is
 
-            // Detect flex staking / internal transfers disguised as "trades":
-            // Both sides normalise to the same asset (e.g. ETH → XETH.F or SOL → SOL.F).
-            // These are just moving coins in/out of staking, NOT real trades.
-            var distinctAssets = entries
-                .Select(e => e.NormalisedAsset)
-                .Where(a => !string.IsNullOrEmpty(a))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
+            // Check full ledger (all types) for this refid before escalating to order-level.
+            // Exclude type="transfer" — staking moves (POL→POL.F etc.) share refids and must not
+            // be treated as trade legs.
+            var fullLegs = ledger
+                .Where(e => e.RefId == refId && e.Type != "transfer" && !StakingTransferSubtypes.Contains(e.SubType))
                 .ToList();
-            if (distinctAssets.Count == 1)
-            {
-                // All entries normalise to the same asset — this is a staking transfer, skip it
+            if (fullLegs.Count >= 2) continue; // resolved by full-ledger search
+
+            // Single-entry fill — look up which order it belongs to
+            if (!tradeById.TryGetValue(refId, out var trade) || string.IsNullOrEmpty(trade.OrderTxId))
+                continue; // no trade data — will warn in the main loop
+
+            var orderId = trade.OrderTxId;
+            if (refIdsHandledAtOrderLevel.Contains(refId)) continue; // already queued
+
+            if (!orderToFillIds.TryGetValue(orderId, out var allFillIds)) continue;
+
+            // Collect all ledger entries for every fill of this order.
+            // Exclude type="transfer" to prevent staking move entries from being treated as trade legs.
+            var combined = allFillIds
+                .SelectMany(id =>
+                    filteredByRefId.TryGetValue(id, out var l)
+                        ? l
+                        : ledger.Where(e => e.RefId == id && e.Type != "transfer" && !StakingTransferSubtypes.Contains(e.SubType)))
+                .OrderBy(e => e.Time)
+                .ToList();
+
+            if (combined.Count < 2) continue; // still not enough — will warn per-refid
+
+            orderLevelGroups.Add((orderId, combined));
+            foreach (var fillId in allFillIds)
+                refIdsHandledAtOrderLevel.Add(fillId);
+        }
+
+        // Process order-level groups first (multi-fill orders with some incomplete ledger entries)
+        foreach (var (orderId, orderEntries) in orderLevelGroups)
+            ProcessTradeGroup(orderEntries, orderId, events);
+
+        // Process individual refid groups (skip those handled at order level above)
+        foreach (var (refId, entries) in filteredByRefId)
+        {
+            if (refIdsHandledAtOrderLevel.Contains(refId))
                 continue;
-            }
 
-            // Separate the entries into "received" (positive amount) and "spent" (negative amount)
-            var received = entries.Where(e => e.Amount > 0).ToList();
-            var spent = entries.Where(e => e.Amount < 0).ToList();
-
-            // Also account for fee entries (amount=0 but fee>0, or fee on the main entries)
-            if (received.Count == 0 || spent.Count == 0)
+            var entryList = entries;
+            if (entryList.Count < 2)
             {
-                // Edge case: fee-only entries or margin adjustments
-                _warnings.Add(new CalculationWarning
+                // The other leg may have a different type (e.g. adjustment, conversion).
+                // Search the full ledger for any entry with the same refid.
+                // Exclude type="transfer" — staking moves must not be treated as trade legs.
+                var allLegs = ledger
+                    .Where(e => e.RefId == refId && e.Type != "transfer" && !StakingTransferSubtypes.Contains(e.SubType))
+                    .OrderBy(e => e.Time)
+                    .ToList();
+
+                if (allLegs.Count >= 2)
+                    entryList = allLegs;
+                else
                 {
-                    Level = WarningLevel.Info,
-                    Category = "Ledger",
-                    Message = $"Trade refid {group.Key}: no clear buy/sell sides. Entries: {string.Join(", ", entries.Select(e => $"{e.NormalisedAsset} {e.Amount}"))}",
-                    Date = entries.First().DateTime,
-                    LedgerId = entries.First().LedgerId
-                });
-                continue;
-            }
-
-            var date = entries.First().DateTime;
-
-            // For each spent asset: it's a disposal
-            // For each received asset: it's an acquisition
-            // We need GBP values for both sides
-
-            // Figure out the GBP value of this trade
-            // Best case: one side is GBP and we know the exact value
-            // Otherwise: convert using FX rates
-
-            decimal tradeGbpValue = 0;
-            bool hasDirectGbp = false;
-
-            // Check if any side is GBP
-            var gbpEntry = entries.FirstOrDefault(e => e.NormalisedAsset == "GBP");
-            if (gbpEntry != null)
-            {
-                tradeGbpValue = Math.Abs(gbpEntry.Amount) - gbpEntry.Fee;
-                hasDirectGbp = true;
-            }
-
-            // Check if any side is a fiat currency we can convert
-            if (!hasDirectGbp)
-            {
-                var fiatEntry = entries.FirstOrDefault(e => e.IsFiat);
-                if (fiatEntry != null)
-                {
-                    var fiatAmount = Math.Abs(fiatEntry.Amount) - fiatEntry.Fee;
-                    tradeGbpValue = _fxService.ConvertToGbp(fiatAmount, fiatEntry.NormalisedAsset, date);
-                    hasDirectGbp = true; // We have a fiat-derived GBP value
-                }
-            }
-
-            // Check if any side is a stablecoin
-            if (!hasDirectGbp)
-            {
-                var stableEntry = entries.FirstOrDefault(e =>
-                    e.NormalisedAsset is "USDT" or "USDC" or "DAI");
-                if (stableEntry != null)
-                {
-                    var stableAmount = Math.Abs(stableEntry.Amount) - stableEntry.Fee;
-                    tradeGbpValue = _fxService.ConvertToGbp(stableAmount, stableEntry.NormalisedAsset, date);
-                    hasDirectGbp = true;
-                }
-            }
-
-            // If purely crypto-to-crypto with no fiat side, value using the disposal side
-            if (!hasDirectGbp)
-            {
-                // Use the spent (disposal) side's GBP value
-                foreach (var s in spent)
-                {
-                    tradeGbpValue += _fxService.ConvertToGbp(
-                        Math.Abs(s.Amount), s.NormalisedAsset, date);
-                }
-            }
-
-            // Now create events for each non-fiat, non-stablecoin asset involved
-            foreach (var s in spent)
-            {
-                if (s.IsFiat || s.NormalisedAsset is "USDT" or "USDC" or "DAI") continue;
-
-                var qty = Math.Abs(s.Amount);
-                var fee = s.Fee;
-
-                // Proportional GBP value if multiple crypto assets were spent
-                var totalSpentCrypto = spent.Where(x => !x.IsFiat && x.NormalisedAsset is not "USDT" and not "USDC" and not "DAI")
-                    .Sum(x => Math.Abs(x.Amount));
-                var proportion = totalSpentCrypto > 0 ? qty / totalSpentCrypto : 1m;
-
-                events.Add(new CgtEvent
-                {
-                    Date = date,
-                    Asset = s.NormalisedAsset,
-                    IsAcquisition = false,
-                    Quantity = qty,
-                    Fee = fee,
-                    GbpValue = tradeGbpValue * proportion,
-                    RefId = group.Key,
-                    LedgerId = s.LedgerId
-                });
-            }
-
-            foreach (var r in received)
-            {
-                if (r.IsFiat || r.NormalisedAsset is "USDT" or "USDC" or "DAI") continue;
-
-                var qty = r.Amount;
-                var fee = r.Fee;
-
-                var totalReceivedCrypto = received.Where(x => !x.IsFiat && x.NormalisedAsset is not "USDT" and not "USDC" and not "DAI")
-                    .Sum(x => x.Amount);
-                var proportion = totalReceivedCrypto > 0 ? qty / totalReceivedCrypto : 1m;
-
-                events.Add(new CgtEvent
-                {
-                    Date = date,
-                    Asset = r.NormalisedAsset,
-                    IsAcquisition = true,
-                    Quantity = qty,
-                    Fee = fee,
-                    GbpValue = (tradeGbpValue * proportion) + _fxService.ConvertToGbp(fee, r.NormalisedAsset, date),
-                    RefId = group.Key,
-                    LedgerId = r.LedgerId
-                });
-            }
-
-            // Handle stablecoin acquisitions/disposals as well (they are crypto, not fiat)
-            foreach (var e in entries.Where(e => e.NormalisedAsset is "USDT" or "USDC" or "DAI"))
-            {
-                if (e.Amount > 0)
-                {
-                    events.Add(new CgtEvent
+                    _warnings.Add(new CalculationWarning
                     {
-                        Date = date,
-                        Asset = e.NormalisedAsset,
-                        IsAcquisition = true,
-                        Quantity = e.Amount,
-                        Fee = e.Fee,
-                        GbpValue = _fxService.ConvertToGbp(e.Amount, e.NormalisedAsset, date),
-                        RefId = group.Key,
-                        LedgerId = e.LedgerId
+                        Level = WarningLevel.Warning,
+                        Category = "Ledger",
+                        Message = $"Trade refid {refId} has only {entryList.Count} ledger entry (expected 2+). Skipping.\n" +
+                                  string.Join("\n", entryList.Select(e =>
+                                      $"  [{e.LedgerId}] {e.DateTime:dd/MM/yyyy HH:mm} | type={e.Type} | {e.NormalisedAsset} amount={e.Amount} fee={e.Fee}")),
+                        Date = entryList.FirstOrDefault()?.DateTime,
+                        LedgerId = entryList.FirstOrDefault()?.LedgerId
                     });
-                }
-                else if (e.Amount < 0)
-                {
-                    events.Add(new CgtEvent
-                    {
-                        Date = date,
-                        Asset = e.NormalisedAsset,
-                        IsAcquisition = false,
-                        Quantity = Math.Abs(e.Amount),
-                        Fee = e.Fee,
-                        GbpValue = _fxService.ConvertToGbp(Math.Abs(e.Amount), e.NormalisedAsset, date),
-                        RefId = group.Key,
-                        LedgerId = e.LedgerId
-                    });
+                    continue;
                 }
             }
+
+            ProcessTradeGroup(entryList, refId, events);
+        }
+
+        // Delisting conversions (e.g. MATIC→POL token migration).
+        // Kraken records these as type=transfer, subtype=delistingconversion with separate refids
+        // for the old-token disposal and new-token acquisition. Handle each side independently:
+        // positive amount = acquisition of new token, negative = disposal of old token.
+        foreach (var entry in ledger.Where(e => e.Type == "transfer"
+                     && string.Equals(e.SubType, "delistingconversion", StringComparison.OrdinalIgnoreCase)
+                     && !e.IsFiat))
+        {
+            var qty = Math.Abs(entry.Amount);
+            var gbpValue = _fxService.GetGbpValueOfAsset(entry.NormalisedAsset, qty, entry.DateTime);
+            events.Add(new CgtEvent
+            {
+                Date = entry.DateTime,
+                Asset = entry.NormalisedAsset,
+                IsAcquisition = entry.Amount > 0,
+                Quantity = qty,
+                Fee = entry.Fee,
+                GbpValue = gbpValue,
+                RefId = entry.RefId,
+                LedgerId = entry.LedgerId
+            });
+
+            _warnings.Add(new CalculationWarning
+            {
+                Level = WarningLevel.Info,
+                Category = "Conversion",
+                Message = entry.Amount > 0
+                    ? $"Delisting conversion: acquired {qty} {entry.NormalisedAsset} valued at {gbpValue:£#,##0.00}."
+                    : $"Delisting conversion: disposed {qty} {entry.NormalisedAsset} valued at {gbpValue:£#,##0.00}.",
+                Date = entry.DateTime,
+                Asset = entry.NormalisedAsset,
+                LedgerId = entry.LedgerId
+            });
         }
 
         // Deposits of crypto = acquisition at GBP value on date received
@@ -318,6 +284,162 @@ public class CgtCalculationService
         }
 
         return events.OrderBy(e => e.Date).ToList();
+    }
+
+    /// <summary>
+    /// Processes a list of ledger entries (one or more fills of the same trade/order) and
+    /// appends the resulting CGT acquisition/disposal events to <paramref name="events"/>.
+    /// For multi-fill orders, all fills are aggregated: GBP values are summed across all
+    /// GBP entries, and each crypto asset's quantity is summed across all fills.
+    /// </summary>
+    private void ProcessTradeGroup(List<KrakenLedgerEntry> entries, string groupId, List<CgtEvent> events)
+    {
+        // Detect flex staking / internal transfers disguised as "trades":
+        // Both sides normalise to the same asset (e.g. ETH → XETH.F or SOL → SOL.F).
+        var distinctAssets = entries
+            .Select(e => e.NormalisedAsset)
+            .Where(a => !string.IsNullOrEmpty(a))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (distinctAssets.Count == 1)
+            return; // Same asset on both sides — staking transfer, not a trade
+
+        var received = entries.Where(e => e.Amount > 0).ToList();
+        var spent    = entries.Where(e => e.Amount < 0).ToList();
+
+        if (received.Count == 0 || spent.Count == 0)
+        {
+            _warnings.Add(new CalculationWarning
+            {
+                Level = WarningLevel.Info,
+                Category = "Ledger",
+                Message = $"Trade {groupId}: no clear buy/sell sides.\n" +
+                          string.Join("\n", entries.Select(e =>
+                              $"  [{e.LedgerId}] {e.DateTime:dd/MM/yyyy HH:mm} | type={e.Type} | {e.NormalisedAsset} amount={e.Amount} fee={e.Fee}")),
+                Date = entries.First().DateTime,
+                LedgerId = entries.First().LedgerId
+            });
+            return;
+        }
+
+        var date = entries.First().DateTime;
+
+        decimal tradeGbpValue = 0;
+        bool hasDirectGbp = false;
+
+        // Sum all GBP entries — a multi-fill order may have several GBP debit entries
+        var gbpEntries = entries.Where(e => e.NormalisedAsset == "GBP").ToList();
+        if (gbpEntries.Count > 0)
+        {
+            tradeGbpValue = gbpEntries.Sum(e => Math.Abs(e.Amount) - e.Fee);
+            hasDirectGbp = true;
+        }
+
+        // Sum all other fiat entries (USD, EUR, etc.)
+        if (!hasDirectGbp)
+        {
+            var fiatEntries = entries.Where(e => e.IsFiat).ToList();
+            if (fiatEntries.Count > 0)
+            {
+                foreach (var fe in fiatEntries)
+                    tradeGbpValue += _fxService.ConvertToGbp(Math.Abs(fe.Amount) - fe.Fee, fe.NormalisedAsset, date);
+                hasDirectGbp = true;
+            }
+        }
+
+        // Sum all stablecoin entries
+        if (!hasDirectGbp)
+        {
+            var stableEntries = entries.Where(e => e.NormalisedAsset is "USDT" or "USDC" or "DAI").ToList();
+            if (stableEntries.Count > 0)
+            {
+                foreach (var se in stableEntries)
+                    tradeGbpValue += _fxService.ConvertToGbp(Math.Abs(se.Amount) - se.Fee, se.NormalisedAsset, date);
+                hasDirectGbp = true;
+            }
+        }
+
+        // Purely crypto-to-crypto — value using the disposal side
+        if (!hasDirectGbp)
+        {
+            foreach (var s in spent)
+                tradeGbpValue += _fxService.ConvertToGbp(Math.Abs(s.Amount), s.NormalisedAsset, date);
+        }
+
+        // Disposals — group by asset and sum quantities across fills
+        var spentByCryptoAsset = spent
+            .Where(e => !e.IsFiat && e.NormalisedAsset is not "USDT" and not "USDC" and not "DAI")
+            .GroupBy(e => e.NormalisedAsset, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var totalSpentCrypto = spentByCryptoAsset.Sum(g => g.Sum(e => Math.Abs(e.Amount)));
+
+        foreach (var assetGroup in spentByCryptoAsset)
+        {
+            var qty = assetGroup.Sum(e => Math.Abs(e.Amount));
+            var fee = assetGroup.Sum(e => e.Fee);
+            var proportion = totalSpentCrypto > 0 ? qty / totalSpentCrypto : 1m;
+
+            events.Add(new CgtEvent
+            {
+                Date    = date,
+                Asset   = assetGroup.Key,
+                IsAcquisition = false,
+                Quantity = qty,
+                Fee      = fee,
+                GbpValue = tradeGbpValue * proportion,
+                RefId    = groupId,
+                LedgerId = assetGroup.First().LedgerId
+            });
+        }
+
+        // Acquisitions — group by asset and sum quantities across fills
+        var receivedByCryptoAsset = received
+            .Where(e => !e.IsFiat && e.NormalisedAsset is not "USDT" and not "USDC" and not "DAI")
+            .GroupBy(e => e.NormalisedAsset, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var totalReceivedCrypto = receivedByCryptoAsset.Sum(g => g.Sum(e => e.Amount));
+
+        foreach (var assetGroup in receivedByCryptoAsset)
+        {
+            var qty = assetGroup.Sum(e => e.Amount);
+            var fee = assetGroup.Sum(e => e.Fee);
+            var proportion = totalReceivedCrypto > 0 ? qty / totalReceivedCrypto : 1m;
+
+            events.Add(new CgtEvent
+            {
+                Date    = date,
+                Asset   = assetGroup.Key,
+                IsAcquisition = true,
+                Quantity = qty,
+                Fee      = fee,
+                GbpValue = (tradeGbpValue * proportion) + _fxService.ConvertToGbp(fee, assetGroup.Key, date),
+                RefId    = groupId,
+                LedgerId = assetGroup.First().LedgerId
+            });
+        }
+
+        // Stablecoin acquisitions/disposals
+        foreach (var e in entries.Where(e => e.NormalisedAsset is "USDT" or "USDC" or "DAI"))
+        {
+            if (e.Amount > 0)
+                events.Add(new CgtEvent
+                {
+                    Date = date, Asset = e.NormalisedAsset, IsAcquisition = true,
+                    Quantity = e.Amount, Fee = e.Fee,
+                    GbpValue = _fxService.ConvertToGbp(e.Amount, e.NormalisedAsset, date),
+                    RefId = groupId, LedgerId = e.LedgerId
+                });
+            else if (e.Amount < 0)
+                events.Add(new CgtEvent
+                {
+                    Date = date, Asset = e.NormalisedAsset, IsAcquisition = false,
+                    Quantity = Math.Abs(e.Amount), Fee = e.Fee,
+                    GbpValue = _fxService.ConvertToGbp(Math.Abs(e.Amount), e.NormalisedAsset, date),
+                    RefId = groupId, LedgerId = e.LedgerId
+                });
+        }
     }
 
     private List<DisposalRecord> CalculateDisposals(List<CgtEvent> events)
@@ -445,7 +567,7 @@ public class CgtCalculationService
                 {
                     var poolCost = evt.Quantity > 0
                         ? (poolQty / evt.Quantity) * evt.GbpValue : 0;
-                    pool.AddTokens(poolQty, poolCost);
+                    pool.AddTokens(poolQty, poolCost, evt.Date, evt.RefId);
                 }
             }
             else
@@ -458,12 +580,20 @@ public class CgtCalculationService
                 {
                     if (poolQty > pool.Quantity && pool.Quantity > 0)
                     {
+                        var historyLines = pool.History.Count > 0
+                            ? "\n  Pool contents (acquisitions into pool after same-day/B&B matching):\n" +
+                              string.Join("\n", pool.History.Select(h =>
+                                  $"    {h.Date:dd/MM/yyyy} | qty={h.Quantity:0.########} | cost=£{h.Cost:#,##0.00} | ref={h.RefId}"))
+                            : "";
                         _warnings.Add(new CalculationWarning
                         {
                             Level = WarningLevel.Warning,
                             Category = "Pool",
-                            Message = $"Disposing {poolQty:0.########} {asset} but Section 104 pool only contains {pool.Quantity:0.########}. " +
-                                      $"This may indicate missing acquisition data (e.g. transfers from another exchange/wallet).",
+                            Message = $"Disposing {poolQty:0.########} {asset} but Section 104 pool only contains {pool.Quantity:0.########} " +
+                                      $"(pooled cost £{pool.PooledCost:#,##0.00}, avg £{pool.CostPerUnit:#,##0.########}/unit). " +
+                                      $"Shortfall: {poolQty - pool.Quantity:0.########} units. " +
+                                      $"This may indicate missing acquisition data (e.g. transfers from another exchange/wallet)." +
+                                      historyLines,
                             Date = evt.Date,
                             Asset = asset,
                             LedgerId = evt.LedgerId
@@ -476,7 +606,7 @@ public class CgtCalculationService
                         {
                             Level = WarningLevel.Error,
                             Category = "Pool",
-                            Message = $"Disposing {poolQty:0.########} {asset} but Section 104 pool is empty (0 quantity). " +
+                            Message = $"Disposing {poolQty:0.########} {asset} but Section 104 pool is empty. " +
                                       $"Cost basis will be £0 — this likely means acquisition data is missing.",
                             Date = evt.Date,
                             Asset = asset,

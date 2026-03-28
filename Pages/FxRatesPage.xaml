@@ -71,6 +71,46 @@
                 </StackPanel>
             </Border>
 
+            <!-- Manual Rate Overrides -->
+            <TextBlock Text="Manual Rate Overrides" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,8,0,0" />
+            <TextBlock Text="Add dated GBP rates for assets where no data could be downloaded. Multiple entries per asset are interpolated like real market rates." Opacity="0.7" TextWrapping="Wrap" />
+
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="16"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1">
+                <StackPanel Spacing="12">
+
+                    <!-- Add override entry row -->
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="180" />
+                            <ColumnDefinition Width="180" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="ManualAssetBox" Grid.Column="0"
+                                 Header="Asset (e.g. BTC)"
+                                 PlaceholderText="Asset name" />
+                        <DatePicker x:Name="ManualDatePicker" Grid.Column="1"
+                                    Header="Date" />
+                        <TextBox x:Name="ManualRateBox" Grid.Column="2"
+                                 Header="GBP Rate per unit"
+                                 PlaceholderText="e.g. 0.00042" />
+                        <Button x:Name="AddOverrideBtn" Grid.Column="3"
+                                Content="Add Rate"
+                                VerticalAlignment="Bottom"
+                                Click="AddOverride_Click" />
+                    </Grid>
+
+                    <InfoBar x:Name="OverrideInfoBar" IsOpen="False" IsClosable="True" />
+
+                    <!-- Existing overrides list -->
+                    <StackPanel x:Name="ManualOverridesPanel" Spacing="4" />
+
+                </StackPanel>
+            </Border>
+
         </StackPanel>
     </ScrollViewer>
 </Page>

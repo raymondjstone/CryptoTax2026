@@ -242,7 +242,14 @@
                     CornerRadius="8" Padding="20" BorderBrush="{ThemeResource SystemFillColorCautionBrush}"
                     BorderThickness="1">
                 <StackPanel Spacing="8">
-                    <TextBlock x:Name="WarningsTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="WarningsTitle" Grid.Column="0" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+                        <Button x:Name="CopyWarningsBtn" Grid.Column="1" Content="Copy to Clipboard" Click="CopyWarnings_Click" />
+                    </Grid>
                     <TextBlock Text="These issues were found during calculation. They may affect the accuracy of the results."
                                TextWrapping="Wrap" Opacity="0.7" />
                     <ListView x:Name="WarningsList" SelectionMode="None" IsItemClickEnabled="False">

@@ -177,7 +177,7 @@ public sealed partial class SettingsPage : Page
         var dialog = new ContentDialog
         {
             Title = "Reset Ledger Data",
-            Content = "This will delete all cached ledger data and re-download everything from scratch. Continue?",
+            Content = "This will delete all cached ledger data AND FX rate cache, then re-download everything from scratch. Continue?",
             PrimaryButtonText = "Reset & Re-download",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close,
@@ -187,6 +187,8 @@ public sealed partial class SettingsPage : Page
         if (await dialog.ShowAsync() == ContentDialogResult.Primary)
         {
             await _mainWindow!.StorageService.DeleteLedgerAsync();
+            _mainWindow.StorageService.DeleteFxCache();
+            _mainWindow.ResetFxService();
             await DownloadLedgerAsync(resume: false);
         }
     }
@@ -251,8 +253,14 @@ public sealed partial class SettingsPage : Page
             InfoMessage.Severity = InfoBarSeverity.Success;
             InfoMessage.IsOpen = true;
 
-            // Prompt to download FX rates
-            if (allEntries.Count > 0)
+            // Only prompt for FX download when new entries were actually added
+            if (resume && startTime > 0)
+            {
+                var addedCount = allEntries.Count - existingCount;
+                if (addedCount > 0)
+                    InfoMessage.Message += " Now click 'Download FX Rates' to load exchange rate data for the new entries.";
+            }
+            else if (allEntries.Count > 0)
             {
                 InfoMessage.Message += " Now click 'Download FX Rates' to load exchange rate data.";
             }

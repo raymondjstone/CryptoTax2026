@@ -75,6 +75,17 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Clears the in-memory FX service after a cache wipe, so the next calculation
+    /// starts with a clean slate.
+    /// </summary>
+    public void ResetFxService()
+    {
+        _fxService = null;
+        _taxYearSummaries = new List<TaxYearSummary>();
+        RebuildTabs();
+    }
+
+    /// <summary>
     /// Downloads all needed FX rates for the current ledger, then recalculates tax years.
     /// This is the main entry point called by the "Download FX Rates" button.
     /// </summary>
@@ -86,8 +97,9 @@ public sealed partial class MainWindow : Window
 
         _warnings = new List<CalculationWarning>();
 
-        // Create fresh FX service for downloading
+        // Create FX service — constructor restores _pairMap, then load all cached files
         _fxService = new FxConversionService(_krakenService, _warnings);
+        _fxService.LoadAllFromDiskCache();
 
         var currencies = _ledger
             .Select(e => e.NormalisedAsset)
@@ -96,55 +108,42 @@ public sealed partial class MainWindow : Window
             .ToList();
 
         var earliest = _ledger.Min(e => e.DateTime);
+        var latest = _ledger.Max(e => e.DateTime);
 
-        progress?.Report((0, $"Downloading FX rates for {currencies.Count} currencies..."));
+        progress?.Report((0, $"Checking FX rates for {currencies.Count} currencies..."));
 
+        // Extend any pairs whose cache doesn't reach today — balance snapshots reference
+        // tax-year-end dates that go beyond the latest ledger entry.
         await _fxService.PreloadRatesAsync(currencies, earliest, progress, ct);
 
         // Now recalculate with the loaded rates
         progress?.Report((0, "Calculating capital gains..."));
 
-        var cgtService = new CgtCalculationService(_fxService, _warnings);
+        var cgtService = new CgtCalculationService(_fxService, _warnings, _trades);
         _taxYearSummaries = cgtService.CalculateAllTaxYears(_ledger, _settings.TaxYearInputs);
 
         RebuildTabs();
     }
 
     /// <summary>
-    /// Recalculates using only disk-cached FX rates (no API downloads).
-    /// Used on startup to show data quickly.
+    /// Recalculates tax on startup using only the disk cache — no network calls.
+    /// pairmap.json restores which cacheKey each asset actually uses (Kraken or CryptoCompare),
+    /// so LoadAllFromDiskCache picks up the correct files.
+    /// If rates are missing or stale, the user can click "Download FX Rates".
     /// </summary>
-    private async Task RecalculateWithCachedRatesAsync()
+    private Task RecalculateWithCachedRatesAsync()
     {
-        if (_ledger.Count == 0) return;
+        if (_ledger.Count == 0) return Task.CompletedTask;
 
         _warnings = new List<CalculationWarning>();
-
-        // Create FX service — it will load from disk cache only
         _fxService = new FxConversionService(_krakenService, _warnings);
+        _fxService.LoadAllFromDiskCache();
 
-        var currencies = _ledger
-            .Select(e => e.NormalisedAsset)
-            .Where(a => !string.IsNullOrEmpty(a))
-            .Distinct()
-            .ToList();
-
-        var earliest = _ledger.Min(e => e.DateTime);
-
-        // PreloadRatesAsync will load from disk cache and only download if cache is stale
-        try
-        {
-            await _fxService.PreloadRatesAsync(currencies, earliest);
-        }
-        catch
-        {
-            // Startup — don't block on FX failures
-        }
-
-        var cgtService = new CgtCalculationService(_fxService, _warnings);
+        var cgtService = new CgtCalculationService(_fxService, _warnings, _trades);
         _taxYearSummaries = cgtService.CalculateAllTaxYears(_ledger, _settings.TaxYearInputs);
 
         RebuildTabs();
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -157,7 +156,7 @@ public sealed partial class MainWindow : Window
 
         _warnings = new List<CalculationWarning>();
 
-        var cgtService = new CgtCalculationService(_fxService, _warnings);
+        var cgtService = new CgtCalculationService(_fxService, _warnings, _trades);
         _taxYearSummaries = cgtService.CalculateAllTaxYears(_ledger, _settings.TaxYearInputs);
 
         RebuildTabs();
