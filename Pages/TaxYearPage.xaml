@@ -60,14 +60,15 @@
                     BorderThickness="1">
                 <StackPanel Spacing="12">
                     <TextBlock Text="Your Details for This Tax Year" Style="{StaticResource SubtitleTextBlockStyle}" />
-                    <TextBlock Text="Enter your total taxable income (employment, self-employment, pensions etc.) and any other capital gains (non-crypto). This determines how much of the UK basic rate band is available for your gains. Scottish/Welsh taxpayers: enter your actual income — the app uses the UK-wide basic rate band for CGT, not Scottish/Welsh income tax bands."
+                    <TextBlock Text="Enter your total taxable income from ALL sources and any other capital gains (non-crypto). Capital gains sit on top of all other income when determining the CGT rate, so you must include all taxable income. Scottish/Welsh taxpayers: enter your actual income — the app uses the UK-wide basic rate band for CGT, not Scottish/Welsh income tax bands."
                                TextWrapping="Wrap" Opacity="0.7" />
 
-                    <NumberBox x:Name="TaxableIncomeBox" Header="Taxable Income (employment, self-employment, pensions etc.)"
+                    <NumberBox x:Name="TaxableIncomeBox" Header="Total Taxable Income (employment, self-employment, pensions, savings interest, dividends, rental etc.)"
                                PlaceholderText="e.g. 45000" SpinButtonPlacementMode="Compact"
                                Minimum="0" SmallChange="1000" LargeChange="10000"
                                ValueChanged="TaxableIncome_ValueChanged"
-                               Width="350" HorizontalAlignment="Left" />
+                               Width="350" HorizontalAlignment="Left"
+                               Description="Include all taxable income: wages, pensions, taxable savings interest (above your savings allowance), taxable dividends (above the £1,000 dividend allowance), rental income, and any other taxable income. Capital gains are stacked on top of this total to determine which CGT rate applies." />
 
                     <NumberBox x:Name="OtherGainsBox" Header="Other Capital Gains (non-crypto, e.g. shares, property)"
                                PlaceholderText="e.g. 0" SpinButtonPlacementMode="Compact"
