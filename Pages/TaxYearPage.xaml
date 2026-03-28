@@ -60,7 +60,7 @@
                     BorderThickness="1">
                 <StackPanel Spacing="12">
                     <TextBlock Text="Your Details for This Tax Year" Style="{StaticResource SubtitleTextBlockStyle}" />
-                    <TextBlock Text="Enter your taxable employment/self-employment income and any other capital gains (non-crypto) for this tax year."
+                    <TextBlock Text="Enter your total taxable income (employment, self-employment, pensions etc.) and any other capital gains (non-crypto). This determines how much of the UK basic rate band is available for your gains. Scottish/Welsh taxpayers: enter your actual income — the app uses the UK-wide basic rate band for CGT, not Scottish/Welsh income tax bands."
                                TextWrapping="Wrap" Opacity="0.7" />
 
                     <NumberBox x:Name="TaxableIncomeBox" Header="Taxable Income (employment, self-employment, pensions etc.)"
@@ -151,6 +151,8 @@
                     <TextBlock x:Name="PersonalAllowanceText" Opacity="0.7" />
                     <TextBlock Text="Rates sourced from HMRC. Crypto assets are taxed as 'other assets' for CGT purposes."
                                Opacity="0.5" TextWrapping="Wrap" Margin="0,8,0,0" FontStyle="Italic" />
+                    <TextBlock Text="Scottish &amp; Welsh taxpayers: CGT is a UK-wide reserved tax. The rates, annual exempt amount, basic rate band (&#163;37,700), and personal allowance (&#163;12,570) shown here are the UK-wide figures — these apply to all UK taxpayers regardless of Scottish/Welsh income tax status. Your Scottish/Welsh income tax bands only affect income tax, not CGT."
+                               Opacity="0.5" TextWrapping="Wrap" Margin="0,4,0,0" FontStyle="Italic" />
                 </StackPanel>
             </Border>
 

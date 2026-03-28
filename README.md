@@ -54,6 +54,17 @@ The application includes hardcoded UK CGT rates for the following tax years:
 
 **These rates may be wrong or out of date. Verify them against official HMRC guidance before relying on any output.**
 
+### Scottish & Welsh Taxpayers
+
+Capital Gains Tax is a **UK-wide reserved tax** — it is not devolved to Scotland or Wales. This means:
+
+- **CGT rates** (18% basic / 24% higher for 2025/26) are the **same for all UK taxpayers**
+- **Annual exempt amount** (£3,000 for 2024/25 onwards) is the **same for all UK taxpayers**
+- **The basic rate band used for CGT** is always the **UK-wide £37,700**, not the Scottish starter/basic/intermediate thresholds
+- **The personal allowance** (£12,570) is set UK-wide and is the same regardless of Scottish/Welsh tax status
+
+Scottish and Welsh income tax bands only affect income tax. When you enter your taxable income in the app, it uses the UK basic rate band to determine how much of your gains are taxed at the lower CGT rate — this is correct for Scottish and Welsh taxpayers. No adjustment is needed.
+
 ## Requirements
 
 - Windows 10 (version 1809 or later) or Windows 11
