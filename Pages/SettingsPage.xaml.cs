@@ -188,7 +188,10 @@ public sealed partial class SettingsPage : Page
         {
             await _mainWindow!.StorageService.DeleteLedgerAsync();
             _mainWindow.StorageService.DeleteFxCache();
+            _mainWindow.SetLedger(new List<KrakenLedgerEntry>());
             _mainWindow.ResetFxService();
+            UpdateLedgerStatus();
+            UpdateFxStatus();
             await DownloadLedgerAsync(resume: false);
         }
     }
@@ -253,16 +256,32 @@ public sealed partial class SettingsPage : Page
             InfoMessage.Severity = InfoBarSeverity.Success;
             InfoMessage.IsOpen = true;
 
-            // Only prompt for FX download when new entries were actually added
-            if (resume && startTime > 0)
+            // Automatically download FX rates after ledger download
+            if (allEntries.Count > 0)
             {
-                var addedCount = allEntries.Count - existingCount;
-                if (addedCount > 0)
-                    InfoMessage.Message += " Now click 'Download FX Rates' to load exchange rate data for the new entries.";
-            }
-            else if (allEntries.Count > 0)
-            {
-                InfoMessage.Message += " Now click 'Download FX Rates' to load exchange rate data.";
+                InfoMessage.Message += " Downloading FX rates...";
+                FxProgress.Visibility = Visibility.Visible;
+                FxProgress.IsIndeterminate = true;
+                FxProgressText.Visibility = Visibility.Visible;
+
+                var fxProgress = new Progress<(int count, string status)>(p =>
+                {
+                    FxProgressText.Text = p.status;
+                });
+
+                await _mainWindow.DownloadFxRatesAndRecalculateAsync(fxProgress, _cts!.Token);
+
+                UpdateFxStatus();
+
+                var stats = _mainWindow.FxService?.GetCacheStats();
+                var pairCount = stats?.Count ?? 0;
+                var pointCount = stats?.Sum(s => s.DataPoints) ?? 0;
+
+                InfoMessage.Message = $"Ledger: {allEntries.Count} entries. FX rates: {pairCount} pairs, {pointCount:#,##0} data points. Tax calculations updated.";
+
+                FxProgress.Visibility = Visibility.Collapsed;
+                FxProgress.IsIndeterminate = false;
+                FxProgressText.Visibility = Visibility.Collapsed;
             }
         }
         catch (OperationCanceledException)

@@ -182,6 +182,17 @@ public class CgtCalculationService
                     entryList = allLegs;
                 else
                 {
+                    // Check if this is a dust trade (sub-penny GBP value) — Kraken sometimes
+                    // records tiny fractional amounts from rounding without a fiat counterpart.
+                    // Silently skip these instead of warning.
+                    var maxAbsAmount = entryList.Max(e => Math.Abs(e.Amount));
+                    var asset = entryList.First().NormalisedAsset;
+                    var dustGbp = !entryList.First().IsFiat
+                        ? _fxService.GetGbpValueOfAsset(asset, maxAbsAmount, entryList.First().DateTime)
+                        : maxAbsAmount;
+                    if (dustGbp < 0.01m)
+                        continue; // dust — not worth warning about
+
                     _warnings.Add(new CalculationWarning
                     {
                         Level = WarningLevel.Warning,
