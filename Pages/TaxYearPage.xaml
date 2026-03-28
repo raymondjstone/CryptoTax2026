@@ -60,7 +60,7 @@
                     BorderThickness="1">
                 <StackPanel Spacing="12">
                     <TextBlock Text="Your Details for This Tax Year" Style="{StaticResource SubtitleTextBlockStyle}" />
-                    <TextBlock Text="Enter your total taxable income from ALL sources and any other capital gains (non-crypto). Capital gains sit on top of all other income when determining the CGT rate, so you must include all taxable income. Scottish/Welsh taxpayers: enter your actual income — the app uses the UK-wide basic rate band for CGT, not Scottish/Welsh income tax bands."
+                    <TextBlock Text="Enter your total taxable income from ALL sources and any other capital gains (non-crypto). Capital gains sit on top of all other income when determining the CGT rate, so you must include all taxable income. Scottish/Welsh taxpayers: enter your actual income — the app uses the UK-wide basic rate band for CGT (per legislation), not Scottish/Welsh income tax bands."
                                TextWrapping="Wrap" Opacity="0.7" />
 
                     <NumberBox x:Name="TaxableIncomeBox" Header="Total Taxable Income (employment, self-employment, pensions, savings interest, dividends, rental etc.)"
