@@ -119,7 +119,7 @@ public sealed partial class MainWindow : Window
         // Now recalculate with the loaded rates
         progress?.Report((0, "Calculating capital gains..."));
 
-        var cgtService = new CgtCalculationService(_fxService, _warnings, _trades);
+        var cgtService = new CgtCalculationService(_fxService, _warnings, _trades, _settings.DelistedAssets);
         _taxYearSummaries = cgtService.CalculateAllTaxYears(_ledger, _settings.TaxYearInputs);
 
         RebuildTabs();
@@ -139,7 +139,7 @@ public sealed partial class MainWindow : Window
         _fxService = new FxConversionService(_krakenService, _warnings);
         _fxService.LoadAllFromDiskCache();
 
-        var cgtService = new CgtCalculationService(_fxService, _warnings, _trades);
+        var cgtService = new CgtCalculationService(_fxService, _warnings, _trades, _settings.DelistedAssets);
         _taxYearSummaries = cgtService.CalculateAllTaxYears(_ledger, _settings.TaxYearInputs);
 
         RebuildTabs();
@@ -156,7 +156,7 @@ public sealed partial class MainWindow : Window
 
         _warnings = new List<CalculationWarning>();
 
-        var cgtService = new CgtCalculationService(_fxService, _warnings, _trades);
+        var cgtService = new CgtCalculationService(_fxService, _warnings, _trades, _settings.DelistedAssets);
         _taxYearSummaries = cgtService.CalculateAllTaxYears(_ledger, _settings.TaxYearInputs);
 
         RebuildTabs();

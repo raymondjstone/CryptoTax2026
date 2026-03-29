@@ -17,6 +17,7 @@ public sealed partial class TaxYearPage : Page
     private MainWindow? _mainWindow;
     private TaxYearSummary? _summary;
     private bool _isLoading;
+    private List<DisposalViewModel>? _allDisposals; // Unfiltered list for filtering
 
     public TaxYearPage()
     {
@@ -112,12 +113,73 @@ public sealed partial class TaxYearPage : Page
     {
         if (_summary == null) return;
 
-        var viewModels = _summary.Disposals
+        _allDisposals = _summary.Disposals
             .OrderBy(d => d.Date)
             .Select(d => new DisposalViewModel(d))
             .ToList();
 
-        DisposalsList.ItemsSource = viewModels;
+        // Populate the asset filter dropdown with unique assets
+        var assets = _allDisposals
+            .Select(d => d.Asset)
+            .Distinct()
+            .OrderBy(a => a)
+            .ToList();
+
+        DisposalAssetFilter.ItemsSource = assets;
+        DisposalAssetFilter.SelectedIndex = -1;
+
+        // Show all disposals initially
+        DisposalsList.ItemsSource = _allDisposals;
+        UpdateFilterStatus();
+    }
+
+    private void DisposalAssetFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        ApplyDisposalFilter();
+    }
+
+    private void ClearDisposalFilter_Click(object sender, RoutedEventArgs e)
+    {
+        DisposalAssetFilter.SelectedIndex = -1;
+        ApplyDisposalFilter();
+    }
+
+    private void ApplyDisposalFilter()
+    {
+        if (_allDisposals == null) return;
+
+        var selectedAsset = DisposalAssetFilter.SelectedItem as string;
+
+        if (string.IsNullOrEmpty(selectedAsset))
+        {
+            DisposalsList.ItemsSource = _allDisposals;
+        }
+        else
+        {
+            var filtered = _allDisposals
+                .Where(d => d.Asset.Equals(selectedAsset, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            DisposalsList.ItemsSource = filtered;
+        }
+
+        UpdateFilterStatus();
+    }
+
+    private void UpdateFilterStatus()
+    {
+        if (_allDisposals == null) return;
+
+        var displayedCount = (DisposalsList.ItemsSource as IEnumerable<DisposalViewModel>)?.Count() ?? 0;
+        var totalCount = _allDisposals.Count;
+
+        if (displayedCount == totalCount)
+        {
+            FilterStatusText.Text = $"Showing all {totalCount} disposals";
+        }
+        else
+        {
+            FilterStatusText.Text = $"Showing {displayedCount} of {totalCount} disposals";
+        }
     }
 
     private async void TaxableIncome_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
@@ -391,7 +453,7 @@ public sealed partial class TaxYearPage : Page
 
         // Run the full CGT calculation with all hypothetical trades
         var tempWarnings = new List<CalculationWarning>();
-        var tempCgtService = new CgtCalculationService(_mainWindow.FxService, tempWarnings, _mainWindow.Trades);
+        var tempCgtService = new CgtCalculationService(_mainWindow.FxService, tempWarnings, _mainWindow.Trades, _mainWindow.Settings.DelistedAssets);
         var tempSummaries = tempCgtService.CalculateAllTaxYears(tempLedger, _mainWindow.Settings.TaxYearInputs);
 
         var whatIfSummary = tempSummaries.FirstOrDefault(s => s.TaxYear == _summary.TaxYear);

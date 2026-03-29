@@ -10,12 +10,14 @@ public class CgtCalculationService
     private readonly FxConversionService _fxService;
     private readonly List<CalculationWarning> _warnings;
     private readonly List<KrakenTrade> _trades;
+    private readonly List<DelistedAssetEvent> _delistedAssets;
 
-    public CgtCalculationService(FxConversionService fxService, List<CalculationWarning> warnings, List<KrakenTrade>? trades = null)
+    public CgtCalculationService(FxConversionService fxService, List<CalculationWarning> warnings, List<KrakenTrade>? trades = null, List<DelistedAssetEvent>? delistedAssets = null)
     {
         _fxService = fxService;
         _warnings = warnings;
         _trades = trades ?? new();
+        _delistedAssets = delistedAssets ?? new();
     }
 
     /// <summary>
@@ -59,22 +61,137 @@ public class CgtCalculationService
         List<KrakenLedgerEntry> ledger,
         Dictionary<string, TaxYearUserInput> userInputs)
     {
+        // Apply user-defined delisting events: filter out post-delisting entries and warn
+        var effectiveLedger = ApplyDelistingFilter(ledger);
+
         // Build trade events from ledger entries
-        var events = BuildEventsFromLedger(ledger);
+        var events = BuildEventsFromLedger(effectiveLedger);
+
+        // Inject zero-value disposal events for delisted assets at the delisting date.
+        // These will be processed by CalculateDisposals to remove the asset from the S104 pool.
+        // We defer injection until after BuildEventsFromLedger so the pool is populated from
+        // pre-delisting entries, then the disposal drains whatever remains.
+        InjectDelistingDisposals(events);
 
         // Separate out staking/reward income (staking, dividend, reward types with positive amount)
-        var stakingEntries = ledger
+        var stakingEntries = effectiveLedger
             .Where(e => e.Type is "staking" or "dividend" or "reward" && e.Amount > 0)
             .ToList();
 
         // Calculate disposals using HMRC rules
         var disposals = CalculateDisposals(events);
 
-        // Compute balance snapshots at tax year boundaries
-        var snapshots = ComputeBalanceSnapshots(ledger);
+        // Compute balance snapshots at tax year boundaries (uses filtered ledger so delisted
+        // assets don't show phantom balances after delisting)
+        var snapshots = ComputeBalanceSnapshots(effectiveLedger);
 
         // Group by tax year and build summaries
         return BuildTaxYearSummaries(disposals, stakingEntries, userInputs, snapshots);
+    }
+
+    /// <summary>
+    /// Filters out ledger entries that occur after a user-defined delisting date for that asset.
+    /// Warns about each ignored entry. Returns a new list with post-delisting entries removed.
+    /// </summary>
+    private List<KrakenLedgerEntry> ApplyDelistingFilter(List<KrakenLedgerEntry> ledger)
+    {
+        if (_delistedAssets.Count == 0) return ledger;
+
+        // Build lookup: normalised asset name → delisting date
+        var delistingDates = new Dictionary<string, (DateTimeOffset Date, string Notes)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var evt in _delistedAssets)
+        {
+            if (!string.IsNullOrWhiteSpace(evt.Asset))
+                delistingDates[evt.Asset.Trim()] = (evt.DelistingDate, evt.Notes);
+        }
+
+        var filtered = new List<KrakenLedgerEntry>(ledger.Count);
+        foreach (var entry in ledger)
+        {
+            if (delistingDates.TryGetValue(entry.NormalisedAsset, out var delisting)
+                && entry.DateTime > delisting.Date)
+            {
+                _warnings.Add(new CalculationWarning
+                {
+                    Level = WarningLevel.Warning,
+                    Category = "Delisting",
+                    Message = $"Ignored post-delisting ledger entry for {entry.NormalisedAsset}: " +
+                              $"type={entry.Type}, amount={entry.Amount}, fee={entry.Fee} on {entry.DateTime:dd/MM/yyyy HH:mm}. " +
+                              $"Asset marked as delisted on {delisting.Date:dd/MM/yyyy}" +
+                              (string.IsNullOrWhiteSpace(delisting.Notes) ? "." : $" ({delisting.Notes})."),
+                    Date = entry.DateTime,
+                    Asset = entry.NormalisedAsset,
+                    LedgerId = entry.LedgerId
+                });
+                continue;
+            }
+            filtered.Add(entry);
+        }
+
+        return filtered;
+    }
+
+    /// <summary>
+    /// For each user-defined delisting event, injects a synthetic disposal event that
+    /// sells the entire holding at £0 proceeds. The actual quantity is set to decimal.MaxValue
+    /// as a sentinel — CalculateDisposals will clamp it to whatever the S104 pool contains.
+    /// </summary>
+    private void InjectDelistingDisposals(List<CgtEvent> events)
+    {
+        foreach (var delisting in _delistedAssets)
+        {
+            var asset = delisting.Asset?.Trim();
+            if (string.IsNullOrWhiteSpace(asset)) continue;
+
+            // Sum all acquisitions and disposals for this asset up to the delisting date
+            // to determine the holding at delisting time.
+            decimal holding = 0;
+            foreach (var evt in events.Where(e => string.Equals(e.Asset, asset, StringComparison.OrdinalIgnoreCase)
+                                                  && e.Date <= delisting.DelistingDate))
+            {
+                holding += evt.IsAcquisition ? evt.Quantity : -evt.Quantity;
+            }
+
+            if (holding <= 0)
+            {
+                _warnings.Add(new CalculationWarning
+                {
+                    Level = WarningLevel.Info,
+                    Category = "Delisting",
+                    Message = $"Delisting event for {asset} on {delisting.DelistingDate:dd/MM/yyyy}: no holding to dispose" +
+                              (string.IsNullOrWhiteSpace(delisting.Notes) ? "." : $" ({delisting.Notes})."),
+                    Date = delisting.DelistingDate,
+                    Asset = asset
+                });
+                continue;
+            }
+
+            events.Add(new CgtEvent
+            {
+                Date = delisting.DelistingDate,
+                Asset = asset,
+                IsAcquisition = false,
+                Quantity = holding,
+                Fee = 0,
+                GbpValue = 0m,
+                RefId = $"DELISTING-{asset}",
+                LedgerId = $"DELISTING-{asset}"
+            });
+
+            _warnings.Add(new CalculationWarning
+            {
+                Level = WarningLevel.Info,
+                Category = "Delisting",
+                Message = $"Delisting event: {holding} {asset} disposed at £0 proceeds on {delisting.DelistingDate:dd/MM/yyyy}. " +
+                          $"The loss equals the Section 104 pool cost basis" +
+                          (string.IsNullOrWhiteSpace(delisting.Notes) ? "." : $" ({delisting.Notes})."),
+                Date = delisting.DelistingDate,
+                Asset = asset
+            });
+        }
+
+        // Re-sort events since we appended delisting disposals
+        events.Sort((a, b) => a.Date.CompareTo(b.Date));
     }
 
     private List<CgtEvent> BuildEventsFromLedger(List<KrakenLedgerEntry> ledger)
@@ -239,6 +356,38 @@ public class CgtCalculationService
                 Message = entry.Amount > 0
                     ? $"Delisting conversion: acquired {qty} {entry.NormalisedAsset} valued at {gbpValue:£#,##0.00}."
                     : $"Delisting conversion: disposed {qty} {entry.NormalisedAsset} valued at {gbpValue:£#,##0.00}.",
+                Date = entry.DateTime,
+                Asset = entry.NormalisedAsset,
+                LedgerId = entry.LedgerId
+            });
+        }
+
+        // Complete delisting removal (e.g. K token delisted with zero value).
+        // Kraken records these as type=transfer, subtype=removal with negative amount.
+        // This is a disposal with 0 pounds proceeds - user can claim the loss based on their cost basis.
+        foreach (var entry in ledger.Where(e => e.Type == "transfer"
+                     && string.Equals(e.SubType, "removal", StringComparison.OrdinalIgnoreCase)
+                     && e.Amount < 0
+                     && !e.IsFiat))
+        {
+            var qty = Math.Abs(entry.Amount);
+            events.Add(new CgtEvent
+            {
+                Date = entry.DateTime,
+                Asset = entry.NormalisedAsset,
+                IsAcquisition = false,
+                Quantity = qty,
+                Fee = entry.Fee,
+                GbpValue = 0m,
+                RefId = entry.RefId,
+                LedgerId = entry.LedgerId
+            });
+
+            _warnings.Add(new CalculationWarning
+            {
+                Level = WarningLevel.Warning,
+                Category = "Delisting",
+                Message = $"Asset delisted/removed: {qty} {entry.NormalisedAsset} disposed with 0 proceeds. The loss equals your cost basis.",
                 Date = entry.DateTime,
                 Asset = entry.NormalisedAsset,
                 LedgerId = entry.LedgerId

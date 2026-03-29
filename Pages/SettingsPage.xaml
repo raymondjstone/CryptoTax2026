@@ -88,6 +88,41 @@
 
             <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
 
+            <!-- ========== DELISTED ASSETS ========== -->
+            <TextBlock Text="Delisted Assets" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Text="Mark assets as delisted. On the delisting date, the entire holding is treated as disposed at £0 (crystallising a loss). Any ledger entries after that date are ignored."
+                       TextWrapping="Wrap" Opacity="0.7" />
+
+            <ListView x:Name="DelistedAssetsList" SelectionMode="None" MaxWidth="750" HorizontalAlignment="Left">
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <Grid ColumnSpacing="12" Padding="0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="100" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{Binding Asset}" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="1" Text="{Binding DateFormatted}" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="2" Text="{Binding Notes}" VerticalAlignment="Center" Opacity="0.7" TextTrimming="CharacterEllipsis" />
+                            <Button Grid.Column="3" Content="Remove" Tag="{Binding Index}"
+                                    Click="RemoveDelistedAsset_Click" Padding="8,4" />
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBox x:Name="DelistAssetBox" Header="Asset" PlaceholderText="e.g. LUNA" Width="120" />
+                <DatePicker x:Name="DelistDatePicker" Header="Delisting Date" />
+                <TextBox x:Name="DelistNotesBox" Header="Notes" PlaceholderText="Optional notes" Width="200" />
+                <Button x:Name="AddDelistedBtn" Content="Add" Style="{StaticResource AccentButtonStyle}"
+                        Click="AddDelistedAsset_Click" VerticalAlignment="Bottom" Margin="0,0,0,1" />
+            </StackPanel>
+
+            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
+
             <TextBlock Text="Data Location" Style="{StaticResource SubtitleTextBlockStyle}" />
             <TextBlock x:Name="DataPathText" Text="" IsTextSelectionEnabled="True" Opacity="0.7" TextWrapping="Wrap" />
 
