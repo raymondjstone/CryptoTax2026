@@ -112,9 +112,9 @@ public sealed partial class FxRatesPage : Page
         }
 
         if (!decimal.TryParse(rateText, System.Globalization.NumberStyles.Any,
-            System.Globalization.CultureInfo.InvariantCulture, out var rate) || rate <= 0)
+            System.Globalization.CultureInfo.InvariantCulture, out var rate) || rate < 0)
         {
-            OverrideInfoBar.Message = "Please enter a valid positive number for the GBP rate.";
+            OverrideInfoBar.Message = "Please enter a valid non-negative number for the GBP rate.";
             OverrideInfoBar.Severity = InfoBarSeverity.Warning;
             OverrideInfoBar.IsOpen = true;
             return;

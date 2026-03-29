@@ -20,6 +20,15 @@ public class ExportService
         QuestPDF.Settings.License = LicenseType.Community;
     }
 
+    /// <summary>
+    /// Sanitizes a string for use as an Excel sheet name by replacing invalid characters.
+    /// Excel sheet names cannot contain: / \ ? * [ ] :
+    /// </summary>
+    private static string SanitizeSheetName(string name)
+    {
+        return name.Replace("/", "-").Replace("\\", "-").Replace("?", "").Replace("*", "").Replace("[", "(").Replace("]", ")").Replace(":", "-");
+    }
+
     // ========== EXCEL ==========
 
     public void ExportToExcel(string filePath, TaxYearSummary summary, List<KrakenTrade>? krakenTrades = null)
@@ -71,27 +80,28 @@ public class ExportService
 
         foreach (var summary in summaries.OrderBy(s => s.StartYear))
         {
-            var ws = workbook.Worksheets.Add($"{summary.TaxYear} Summary");
+            var sheetPrefix = SanitizeSheetName(summary.TaxYear);
+            var ws = workbook.Worksheets.Add($"{sheetPrefix} Summary");
             WriteSummarySheet(ws, summary);
 
-            var ds = workbook.Worksheets.Add($"{summary.TaxYear} Disposals");
+            var ds = workbook.Worksheets.Add($"{sheetPrefix} Disposals");
             WriteDisposalsSheet(ds, summary);
 
             if (summary.StakingRewards.Count > 0)
             {
-                var ss = workbook.Worksheets.Add($"{summary.TaxYear} Staking");
+                var ss = workbook.Worksheets.Add($"{sheetPrefix} Staking");
                 WriteStakingSheet(ss, summary);
             }
 
             if (summary.Warnings.Count > 0)
             {
-                var wws = workbook.Worksheets.Add($"{summary.TaxYear} Warnings");
+                var wws = workbook.Worksheets.Add($"{sheetPrefix} Warnings");
                 WriteWarningsSheet(wws, summary);
             }
 
             if (summary.StartOfYearBalances.Balances.Count > 0 || summary.EndOfYearBalances.Balances.Count > 0)
             {
-                var bs = workbook.Worksheets.Add($"{summary.TaxYear} Balances");
+                var bs = workbook.Worksheets.Add($"{sheetPrefix} Balances");
                 WriteBalancesSheet(bs, summary);
             }
         }
