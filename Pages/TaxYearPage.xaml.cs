@@ -26,27 +26,75 @@ public sealed partial class TaxYearPage : Page
         InitializeComponent();
     }
 
-    protected override void OnNavigatedTo(NavigationEventArgs e)
+    protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         if (e.Parameter is (MainWindow mw, TaxYearSummary summary))
         {
             _mainWindow = mw;
             _summary = summary;
 
-            // Show loading state immediately, then defer heavy work so the
-            // ProgressRing has a chance to render before we block the UI thread.
             LoadingPanel.Visibility = Visibility.Visible;
             ContentScroller.Visibility = Visibility.Collapsed;
+            _isLoading = true;
 
-            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            // Capture all data needed by the background thread up front
+            var ledger = mw.Ledger ?? new List<KrakenLedgerEntry>();
+            var costOverrides = mw.Settings.CostBasisOverrides ?? new();
+            var allNotes = mw.Settings.DisposalNotes ?? new();
+
+            // Build expensive ViewModels on a background thread so the spinner actually animates
+            await Task.Run(() =>
             {
-                _isLoading = true;
-                LoadData();
-                _isLoading = false;
+                var ledgerByRefId = ledger.ToLookup(entry => entry.RefId);
 
-                LoadingPanel.Visibility = Visibility.Collapsed;
-                ContentScroller.Visibility = Visibility.Visible;
+                _allBnbDisposals = summary.Disposals
+                    .Where(d => d.MatchingRule.Contains("Bed", StringComparison.OrdinalIgnoreCase) ||
+                                d.MatchingRule.Contains("B&B", StringComparison.OrdinalIgnoreCase) ||
+                                d.MatchingRule.Contains("Breakfast", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(d => d.Date)
+                    .Select(d =>
+                    {
+                        var de = ledgerByRefId[d.TradeId]
+                            .OrderBy(x => x.DateTime)
+                            .Select(x => new BnbLedgerEntryViewModel(x))
+                            .ToList();
+                        var ae = string.IsNullOrEmpty(d.AcquisitionRefId)
+                            ? new List<BnbLedgerEntryViewModel>()
+                            : ledgerByRefId[d.AcquisitionRefId]
+                                .OrderBy(x => x.DateTime)
+                                .Select(x => new BnbLedgerEntryViewModel(x))
+                                .ToList();
+                        return new BnbDisposalViewModel(d, de, ae);
+                    })
+                    .ToList();
+
+                _allDisposals = summary.Disposals
+                    .OrderBy(d => d.Date)
+                    .Select(d =>
+                    {
+                        var de = ledgerByRefId[d.TradeId]
+                            .OrderBy(x => x.DateTime)
+                            .Select(x => new BnbLedgerEntryViewModel(x))
+                            .ToList();
+                        var ae = string.IsNullOrEmpty(d.AcquisitionRefId)
+                            ? new List<BnbLedgerEntryViewModel>()
+                            : ledgerByRefId[d.AcquisitionRefId]
+                                .OrderBy(x => x.DateTime)
+                                .Select(x => new BnbLedgerEntryViewModel(x))
+                                .ToList();
+                        return new DisposalViewModel(d,
+                            costOverrides.ContainsKey(d.TradeId),
+                            allNotes.ContainsKey(d.TradeId),
+                            de, ae);
+                    })
+                    .ToList();
             });
+
+            // UI binding runs back on the UI thread
+            LoadData();
+            _isLoading = false;
+            LoadingPanel.Visibility = Visibility.Collapsed;
+            ContentScroller.Visibility = Visibility.Visible;
         }
     }
 
@@ -148,34 +196,6 @@ public sealed partial class TaxYearPage : Page
 
     private void LoadBnbReport()
     {
-        if (_summary == null) return;
-
-        var ledger = _mainWindow?.Ledger ?? new List<KrakenLedgerEntry>();
-        var ledgerByRefId = ledger.ToLookup(e => e.RefId);
-
-        _allBnbDisposals = _summary.Disposals
-            .Where(d => d.MatchingRule.Contains("Bed", StringComparison.OrdinalIgnoreCase) ||
-                        d.MatchingRule.Contains("B&B", StringComparison.OrdinalIgnoreCase) ||
-                        d.MatchingRule.Contains("Breakfast", StringComparison.OrdinalIgnoreCase))
-            .OrderBy(d => d.Date)
-            .Select(d =>
-            {
-                var disposalEntries = ledgerByRefId[d.TradeId]
-                    .OrderBy(e => e.DateTime)
-                    .Select(e => new BnbLedgerEntryViewModel(e))
-                    .ToList();
-
-                var acquisitionEntries = string.IsNullOrEmpty(d.AcquisitionRefId)
-                    ? new List<BnbLedgerEntryViewModel>()
-                    : ledgerByRefId[d.AcquisitionRefId]
-                        .OrderBy(e => e.DateTime)
-                        .Select(e => new BnbLedgerEntryViewModel(e))
-                        .ToList();
-
-                return new BnbDisposalViewModel(d, disposalEntries, acquisitionEntries);
-            })
-            .ToList();
-
         if (_allBnbDisposals.Count == 0)
         {
             BnbPanel.Visibility = Visibility.Collapsed;
@@ -297,35 +317,7 @@ public sealed partial class TaxYearPage : Page
 
     private void LoadDisposals()
     {
-        if (_summary == null) return;
-
-        var ledger = _mainWindow?.Ledger ?? new List<KrakenLedgerEntry>();
-        var costOverrides = _mainWindow?.Settings.CostBasisOverrides ?? new();
-        var allNotes = _mainWindow?.Settings.DisposalNotes ?? new();
-        var ledgerByRefId = ledger.ToLookup(e => e.RefId);
-
-        _allDisposals = _summary.Disposals
-            .OrderBy(d => d.Date)
-            .Select(d =>
-            {
-                var disposalEntries = ledgerByRefId[d.TradeId]
-                    .OrderBy(e => e.DateTime)
-                    .Select(e => new BnbLedgerEntryViewModel(e))
-                    .ToList();
-
-                var acquisitionEntries = string.IsNullOrEmpty(d.AcquisitionRefId)
-                    ? new List<BnbLedgerEntryViewModel>()
-                    : ledgerByRefId[d.AcquisitionRefId]
-                        .OrderBy(e => e.DateTime)
-                        .Select(e => new BnbLedgerEntryViewModel(e))
-                        .ToList();
-
-                return new DisposalViewModel(d,
-                    costOverrides.ContainsKey(d.TradeId),
-                    allNotes.ContainsKey(d.TradeId),
-                    disposalEntries, acquisitionEntries);
-            })
-            .ToList();
+        if (_allDisposals == null) return;
 
         var assets = _allDisposals
             .Select(d => d.Asset)
