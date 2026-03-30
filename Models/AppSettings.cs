@@ -14,6 +14,7 @@ public class AppSettings
     public Dictionary<string, string> DisposalNotes { get; set; } = new();
     public Dictionary<string, decimal> CostBasisOverrides { get; set; } = new(); // TradeId -> GBP cost
     public string Theme { get; set; } = "Default"; // "Default", "Light", "Dark"
+    public string? CustomDataPath { get; set; } // null = default %LocalAppData%, set to OneDrive path for sync
 
     // Data freshness timestamps
     public DateTimeOffset? LastLedgerDownload { get; set; }
@@ -46,6 +47,7 @@ public class DelistedAssetEvent
     public string Asset { get; set; } = "";
     public DateTimeOffset DelistingDate { get; set; }
     public string Notes { get; set; } = "";
+    public string ClaimType { get; set; } = "Delisted"; // "Delisted" or "Negligible Value"
 }
 
 /// <summary>

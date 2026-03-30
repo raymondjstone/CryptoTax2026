@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="CryptoTax2026.Pages.ToolsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    NavigationCacheMode="Required">
+
+    <ScrollViewer Padding="0,0,20,0">
+        <StackPanel Spacing="16" MaxWidth="1100" HorizontalAlignment="Left">
+
+            <TextBlock Text="Tax Planning Tools" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Text="Analysis tools for optimising your capital gains tax position. These are suggestions only — consult a tax adviser before acting."
+                       TextWrapping="Wrap" Opacity="0.7" />
+
+            <!-- AEA Optimiser -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Annual Exempt Amount (AEA) Optimiser" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock Text="Shows how much of your AEA is unused for the current open tax year. You may be able to crystallise gains up to this amount tax-free."
+                               TextWrapping="Wrap" Opacity="0.7" />
+                    <Grid x:Name="AeaGrid" ColumnSpacing="20" RowSpacing="4" Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="250" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition /><RowDefinition /><RowDefinition />
+                            <RowDefinition /><RowDefinition />
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="Current net gains" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" x:Name="AeaCurrentGains" FontWeight="SemiBold" />
+                        <TextBlock Grid.Row="1" Text="Annual Exempt Amount" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" x:Name="AeaAmount" FontWeight="SemiBold" />
+                        <TextBlock Grid.Row="2" Text="AEA used so far" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" x:Name="AeaUsed" FontWeight="SemiBold" />
+                        <TextBlock Grid.Row="3" Text="AEA remaining (tax-free headroom)" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" x:Name="AeaRemaining" FontWeight="SemiBold" Foreground="Green" />
+                        <TextBlock Grid.Row="4" x:Name="AeaSuggestion" Grid.ColumnSpan="2" TextWrapping="Wrap" Opacity="0.8" Margin="0,8,0,0" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Tax-Loss Harvesting -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Tax-Loss Harvesting Suggestions" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock Text="Assets you currently hold at an unrealised loss. Selling these would crystallise losses that can offset gains. Be aware of the 30-day Bed &amp; Breakfast rule if you repurchase."
+                               TextWrapping="Wrap" Opacity="0.7" />
+                    <TextBlock x:Name="HarvestingEmptyText" Text="No unrealised losses found in current holdings." Opacity="0.5" FontStyle="Italic" />
+                    <ListView x:Name="HarvestingList" SelectionMode="None" MaxHeight="300">
+                        <ListView.HeaderTemplate>
+                            <DataTemplate>
+                                <Grid Padding="8,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="80" />
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="140" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Asset" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="1" Text="Pooled Cost" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="2" Text="Est. Value" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="3" Text="Unrealised Loss" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="4" Text="Potential Tax Saving" FontWeight="SemiBold" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.HeaderTemplate>
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Padding="8,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="80" />
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="140" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding Asset}" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="1" Text="{Binding PooledCostFormatted}" />
+                                    <TextBlock Grid.Column="2" Text="{Binding EstValueFormatted}" />
+                                    <TextBlock Grid.Column="3" Text="{Binding UnrealisedLossFormatted}" Foreground="Red" />
+                                    <TextBlock Grid.Column="4" Text="{Binding TaxSavingFormatted}" Foreground="Green" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+            </Border>
+
+            <!-- Break-Even Calculator -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Break-Even Price Calculator" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock Text="Shows the price each asset needs to reach for you to break even on your Section 104 pool cost basis (before tax)."
+                               TextWrapping="Wrap" Opacity="0.7" />
+                    <ListView x:Name="BreakEvenList" SelectionMode="None" MaxHeight="400">
+                        <ListView.HeaderTemplate>
+                            <DataTemplate>
+                                <Grid Padding="8,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="80" />
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="140" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Asset" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="1" Text="Quantity" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="2" Text="Avg Cost/Unit (GBP)" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="3" Text="Current Price (GBP)" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="4" Text="vs Break-Even" FontWeight="SemiBold" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.HeaderTemplate>
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Padding="8,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="80" />
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="140" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding Asset}" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="1" Text="{Binding QuantityFormatted}" />
+                                    <TextBlock Grid.Column="2" Text="{Binding AvgCostFormatted}" />
+                                    <TextBlock Grid.Column="3" Text="{Binding CurrentPriceFormatted}" />
+                                    <TextBlock Grid.Column="4" Text="{Binding VsBreakEvenFormatted}" Foreground="{Binding VsBreakEvenColor}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+            </Border>
+
+            <!-- HMRC Digital Records Checklist -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="HMRC Digital Records Checklist" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock Text="HMRC requires you to keep records of all crypto transactions for at least 12 months after the SA filing deadline. Check that you have the following:"
+                               TextWrapping="Wrap" Opacity="0.7" />
+                    <StackPanel x:Name="ChecklistPanel" Spacing="4" Margin="0,8,0,0" />
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>

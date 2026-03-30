@@ -153,13 +153,36 @@ public sealed partial class TaxYearPage : Page
         if (_summary == null) return;
 
         var endYear = _summary.StartYear + 1;
-        var saDeadline = new DateTimeOffset(endYear + 1, 1, 31, 23, 59, 59, TimeSpan.Zero);
-        var saOnlineDeadline = saDeadline;
+        var saOnlineDeadline = new DateTimeOffset(endYear + 1, 1, 31, 23, 59, 59, TimeSpan.Zero);
         var saPaperDeadline = new DateTimeOffset(endYear, 10, 31, 23, 59, 59, TimeSpan.Zero);
+        var now = DateTimeOffset.UtcNow;
 
         DeadlineSaText.Text = $"Self Assessment online filing & payment deadline: {saOnlineDeadline:dd MMMM yyyy}\n" +
                               $"Paper filing deadline: {saPaperDeadline:dd MMMM yyyy}";
-        DeadlineNoteText.Text = "Note: For UK residential property disposals completed from 27 October 2021, you must report and pay CGT within 60 days of completion via the 'Report and pay Capital Gains Tax on UK property' service. Crypto assets are not residential property — the standard SA deadline applies.";
+
+        // Deadline notifications
+        var daysToOnline = (saOnlineDeadline - now).TotalDays;
+        var daysToPaper = (saPaperDeadline - now).TotalDays;
+
+        string urgency = "";
+        if (daysToOnline < 0)
+            urgency = "OVERDUE: The online filing deadline has passed!";
+        else if (daysToOnline <= 30)
+            urgency = $"URGENT: Only {(int)daysToOnline} days until the online filing deadline.";
+        else if (daysToOnline <= 90)
+            urgency = $"REMINDER: {(int)daysToOnline} days until the online filing deadline.";
+        else if (daysToPaper <= 30 && daysToPaper > 0)
+            urgency = $"Paper filing deadline is in {(int)daysToPaper} days.";
+
+        if (!string.IsNullOrEmpty(urgency))
+        {
+            DeadlineNoteText.Text = urgency + "\n\n" +
+                "Note: For UK residential property disposals completed from 27 October 2021, you must report and pay CGT within 60 days of completion via the 'Report and pay Capital Gains Tax on UK property' service. Crypto assets are not residential property — the standard SA deadline applies.";
+        }
+        else
+        {
+            DeadlineNoteText.Text = "Note: For UK residential property disposals completed from 27 October 2021, you must report and pay CGT within 60 days of completion via the 'Report and pay Capital Gains Tax on UK property' service. Crypto assets are not residential property — the standard SA deadline applies.";
+        }
     }
 
     private void LoadSA108()
@@ -870,6 +893,29 @@ public sealed partial class TaxYearPage : Page
             if (disposal != null)
                 disposalDetails.Add($"{disposal.Asset}: Proceeds {FormatGbp(disposal.DisposalProceeds)}, Cost {FormatGbp(disposal.AllowableCost)}, Gain {FormatGbp(disposal.GainOrLoss)}");
         }
+
+        // Cross-year impact (Feature 17): show effect on other tax years too
+        var crossYearEffects = new List<string>();
+        foreach (var newSummary in tempSummaries.OrderBy(s => s.StartYear))
+        {
+            var origSummary = _mainWindow.TaxYearSummaries.FirstOrDefault(s => s.TaxYear == newSummary.TaxYear);
+            if (origSummary == null) continue;
+            var cgtDiff = newSummary.CgtDue - origSummary.CgtDue;
+            var lossCarryDiff = newSummary.LossesCarriedOut - origSummary.LossesCarriedOut;
+            if (Math.Abs(cgtDiff) > 0.005m || Math.Abs(lossCarryDiff) > 0.005m)
+            {
+                var parts = new List<string>();
+                if (Math.Abs(cgtDiff) > 0.005m)
+                    parts.Add($"CGT {FormatDiff(cgtDiff)}");
+                if (Math.Abs(lossCarryDiff) > 0.005m)
+                    parts.Add($"Losses c/f {FormatDiff(lossCarryDiff)}");
+                crossYearEffects.Add($"  {newSummary.TaxYear}: {string.Join(", ", parts)}");
+            }
+        }
+
+        if (crossYearEffects.Count > 0)
+            disposalDetails.Add("\nCross-year impact:\n" + string.Join("\n", crossYearEffects));
+
         WhatIfTradeSummary.Text = disposalDetails.Count > 0 ? string.Join("\n", disposalDetails) : "";
 
         var currentNet = _summary.TotalGains + _summary.TotalLosses;
@@ -889,6 +935,15 @@ public sealed partial class TaxYearPage : Page
         WhatIfDiffCgt.Foreground = whatIfSummary.CgtDue > _summary.CgtDue
             ? new SolidColorBrush(Colors.Red)
             : new SolidColorBrush(Colors.Green);
+
+        // Show total CGT across ALL years
+        var totalCurrentCgt = _mainWindow.TaxYearSummaries.Sum(s => s.CgtDue);
+        var totalNewCgt = tempSummaries.Sum(s => s.CgtDue);
+        var totalDiff = totalNewCgt - totalCurrentCgt;
+        if (Math.Abs(totalDiff - (whatIfSummary.CgtDue - _summary.CgtDue)) > 0.005m)
+        {
+            WhatIfDiffCgt.Text += $" (all years: {FormatDiff(totalDiff)})";
+        }
     }
 
     private void WhatIfClear_Click(object sender, RoutedEventArgs e)
@@ -967,6 +1022,35 @@ public sealed partial class TaxYearPage : Page
         try
         {
             _exportService.ExportToWord(path, _summary, GetKrakenTradesIfChecked());
+            ShowExportSuccess(path);
+        }
+        catch (Exception ex) { ShowExportError(ex); }
+    }
+
+    private async void ExportSa108Pdf_Click(object sender, RoutedEventArgs e)
+    {
+        if (_summary == null) return;
+        var path = await PickSaveFileAsync("PDF Document", ".pdf", $"SA108_{_summary.TaxYear.Replace("/", "-")}.pdf");
+        if (path == null) return;
+
+        try
+        {
+            _exportService.ExportSa108ToPdf(path, _summary);
+            ShowExportSuccess(path);
+        }
+        catch (Exception ex) { ShowExportError(ex); }
+    }
+
+    private async void ExportAccountantReport_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mainWindow == null) return;
+        var path = await PickSaveFileAsync("PDF Document", ".pdf", "Accountant_Report.pdf");
+        if (path == null) return;
+
+        try
+        {
+            _exportService.ExportAccountantReport(path, _mainWindow.TaxYearSummaries,
+                _mainWindow.FinalPools, _mainWindow.Warnings);
             ShowExportSuccess(path);
         }
         catch (Exception ex) { ShowExportError(ex); }

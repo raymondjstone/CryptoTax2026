@@ -13,6 +13,11 @@ public class CgtCalculationService
     private readonly List<DelistedAssetEvent> _delistedAssets;
     private readonly Dictionary<string, decimal> _costBasisOverrides;
 
+    /// <summary>
+    /// After CalculateAllTaxYears runs, holds the final Section 104 pool state per asset.
+    /// </summary>
+    public Dictionary<string, Section104Pool> FinalPools { get; private set; } = new();
+
     public CgtCalculationService(FxConversionService fxService, List<CalculationWarning> warnings, List<KrakenTrade>? trades = null, List<DelistedAssetEvent>? delistedAssets = null, Dictionary<string, decimal>? costBasisOverrides = null)
     {
         _fxService = fxService;
@@ -77,7 +82,7 @@ public class CgtCalculationService
 
         // Separate out staking/reward income (staking, dividend, reward types with positive amount)
         var stakingEntries = effectiveLedger
-            .Where(e => e.Type is "staking" or "dividend" or "reward" && e.Amount > 0)
+            .Where(e => e.Type is "staking" or "dividend" or "reward" or "airdrop" or "fork" or "mining" && e.Amount > 0)
             .ToList();
 
         // Calculate disposals using HMRC rules
@@ -357,7 +362,8 @@ public class CgtCalculationService
                 Fee = entry.Fee,
                 GbpValue = gbpValue,
                 RefId = entry.RefId,
-                LedgerId = entry.LedgerId
+                LedgerId = entry.LedgerId,
+                Type = "conversion"
             });
 
             _warnings.Add(new CalculationWarning
@@ -391,7 +397,8 @@ public class CgtCalculationService
                 Fee = entry.Fee,
                 GbpValue = 0m,
                 RefId = entry.RefId,
-                LedgerId = entry.LedgerId
+                LedgerId = entry.LedgerId,
+                Type = "removal"
             });
 
             _warnings.Add(new CalculationWarning
@@ -421,7 +428,8 @@ public class CgtCalculationService
                 Fee = dep.Fee,
                 GbpValue = gbpValue,
                 RefId = dep.RefId,
-                LedgerId = dep.LedgerId
+                LedgerId = dep.LedgerId,
+                Type = "deposit"
             });
 
             _warnings.Add(new CalculationWarning
@@ -438,7 +446,7 @@ public class CgtCalculationService
         // Staking rewards = acquisition at GBP value on date received
         // (taxed as income, but also establishes cost basis for future disposal)
         // Includes staking, dividend, and reward types
-        foreach (var stake in ledger.Where(e => e.Type is "staking" or "dividend" or "reward" && e.Amount > 0))
+        foreach (var stake in ledger.Where(e => e.Type is "staking" or "dividend" or "reward" or "airdrop" or "fork" or "mining" && e.Amount > 0))
         {
             var gbpValue = _fxService.GetGbpValueOfAsset(stake.NormalisedAsset, stake.Amount, stake.DateTime);
             events.Add(new CgtEvent
@@ -450,7 +458,8 @@ public class CgtCalculationService
                 Fee = stake.Fee,
                 GbpValue = gbpValue,
                 RefId = stake.RefId,
-                LedgerId = stake.LedgerId
+                LedgerId = stake.LedgerId,
+                Type = stake.Type
             });
         }
 
@@ -535,6 +544,19 @@ public class CgtCalculationService
         {
             foreach (var s in spent)
                 tradeGbpValue += _fxService.ConvertToGbp(Math.Abs(s.Amount), s.NormalisedAsset, date);
+
+            var spentAssets = spent.Select(e => e.NormalisedAsset).Distinct().ToList();
+            var receivedAssets = received.Select(e => e.NormalisedAsset).Distinct().ToList();
+            _warnings.Add(new CalculationWarning
+            {
+                Level = WarningLevel.Info,
+                Category = "Crypto-to-Crypto",
+                Message = $"Trade {groupId}: crypto-to-crypto swap ({string.Join("+", spentAssets)} → {string.Join("+", receivedAssets)}). " +
+                          $"Disposal proceeds valued at £{tradeGbpValue:#,##0.00} using FX rate at trade time.",
+                Date = date,
+                Asset = spentAssets.FirstOrDefault() ?? "",
+                LedgerId = entries.First().LedgerId
+            });
         }
 
         // Disposals — group by asset and sum quantities across fills
@@ -560,7 +582,8 @@ public class CgtCalculationService
                 Fee      = fee,
                 GbpValue = tradeGbpValue * proportion,
                 RefId    = groupId,
-                LedgerId = assetGroup.First().LedgerId
+                LedgerId = assetGroup.First().LedgerId,
+                Type     = "trade"
             });
         }
 
@@ -587,7 +610,8 @@ public class CgtCalculationService
                 Fee      = fee,
                 GbpValue = (tradeGbpValue * proportion) + _fxService.ConvertToGbp(fee, assetGroup.Key, date),
                 RefId    = groupId,
-                LedgerId = assetGroup.First().LedgerId
+                LedgerId = assetGroup.First().LedgerId,
+                Type     = "trade"
             });
         }
 
@@ -600,7 +624,7 @@ public class CgtCalculationService
                     Date = date, Asset = e.NormalisedAsset, IsAcquisition = true,
                     Quantity = e.Amount, Fee = e.Fee,
                     GbpValue = _fxService.ConvertToGbp(e.Amount, e.NormalisedAsset, date),
-                    RefId = groupId, LedgerId = e.LedgerId
+                    RefId = groupId, LedgerId = e.LedgerId, Type = "trade"
                 });
             else if (e.Amount < 0)
                 events.Add(new CgtEvent
@@ -608,7 +632,7 @@ public class CgtCalculationService
                     Date = date, Asset = e.NormalisedAsset, IsAcquisition = false,
                     Quantity = Math.Abs(e.Amount), Fee = e.Fee,
                     GbpValue = _fxService.ConvertToGbp(Math.Abs(e.Amount), e.NormalisedAsset, date),
-                    RefId = groupId, LedgerId = e.LedgerId
+                    RefId = groupId, LedgerId = e.LedgerId, Type = "trade"
                 });
         }
     }
@@ -739,7 +763,7 @@ public class CgtCalculationService
                 {
                     var poolCost = evt.Quantity > 0
                         ? (poolQty / evt.Quantity) * evt.GbpValue : 0;
-                    pool.AddTokens(poolQty, poolCost, evt.Date, evt.RefId);
+                    pool.AddTokens(poolQty, poolCost, evt.Date, evt.RefId, evt.Type);
                 }
             }
             else
@@ -808,6 +832,9 @@ public class CgtCalculationService
                 }
             }
         }
+
+        // Store final pool state for inspection
+        FinalPools = pools;
 
         return disposals.OrderBy(d => d.Date).ToList();
     }
@@ -1143,6 +1170,7 @@ public class CgtCalculationService
         public decimal GbpValue { get; set; }
         public string RefId { get; set; } = "";
         public string LedgerId { get; set; } = "";
+        public string Type { get; set; } = "";
     }
 
     private class AcqRemaining

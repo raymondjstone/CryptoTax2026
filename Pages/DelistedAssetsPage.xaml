@@ -11,10 +11,10 @@
     <ScrollViewer Padding="0,0,20,0">
         <StackPanel Spacing="16" MaxWidth="800" HorizontalAlignment="Left">
 
-            <TextBlock Text="Delisted Assets" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Text="Delisted Assets &amp; Negligible Value Claims" Style="{StaticResource TitleTextBlockStyle}" />
             <InfoBar x:Name="InfoMessage" IsOpen="False" />
 
-            <TextBlock Text="Mark assets as delisted. On the delisting date, the entire holding is treated as disposed at £0 (crystallising a loss). Any ledger entries after that date are ignored."
+            <TextBlock Text="Mark assets as delisted or make a negligible value claim. On the specified date, the entire holding is treated as disposed at £0 (crystallising a loss). For delisted assets, ledger entries after that date are also ignored."
                        TextWrapping="Wrap" Opacity="0.7" />
 
             <ListView x:Name="DelistedAssetsList" SelectionMode="None" MaxWidth="750" HorizontalAlignment="Left">
@@ -29,7 +29,7 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="{Binding Asset}" VerticalAlignment="Center" FontWeight="SemiBold" />
                             <TextBlock Grid.Column="1" Text="{Binding DateFormatted}" VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="2" Text="{Binding Notes}" VerticalAlignment="Center" Opacity="0.7" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="2" Text="{Binding DisplayText}" VerticalAlignment="Center" Opacity="0.7" TextTrimming="CharacterEllipsis" />
                             <Button Grid.Column="3" Content="Remove" Tag="{Binding Index}"
                                     Click="RemoveDelistedAsset_Click" Padding="8,4" />
                         </Grid>
@@ -41,11 +41,15 @@
 
             <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
 
-            <TextBlock Text="Add Delisting Event" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <TextBlock Text="Add Event" Style="{StaticResource SubtitleTextBlockStyle}" />
 
             <StackPanel Orientation="Horizontal" Spacing="8">
+                <ComboBox x:Name="ClaimTypeBox" Header="Claim Type" Width="160" SelectedIndex="0">
+                    <ComboBoxItem Content="Delisted" Tag="Delisted" />
+                    <ComboBoxItem Content="Negligible Value" Tag="Negligible Value" />
+                </ComboBox>
                 <TextBox x:Name="DelistAssetBox" Header="Asset" PlaceholderText="e.g. LUNA" Width="120" />
-                <DatePicker x:Name="DelistDatePicker" Header="Delisting Date" />
+                <DatePicker x:Name="DelistDatePicker" Header="Date" />
                 <TextBox x:Name="DelistNotesBox" Header="Notes" PlaceholderText="Optional notes" Width="200" />
                 <Button x:Name="AddDelistedBtn" Content="Add" Style="{StaticResource AccentButtonStyle}"
                         Click="AddDelistedAsset_Click" VerticalAlignment="Bottom" Margin="0,0,0,1" />

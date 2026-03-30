@@ -49,6 +49,17 @@
                                     </MenuFlyoutItem.Icon>
                                 </MenuFlyoutItem>
                                 <MenuFlyoutSeparator />
+                                <MenuFlyoutItem Text="Export SA108 PDF" Click="ExportSa108Pdf_Click">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE7C3;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Export Accountant Report" Click="ExportAccountantReport_Click">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE8A1;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutSeparator />
                                 <MenuFlyoutItem Text="Export ALL Tax Years to Excel" Click="ExportAllExcel_Click">
                                     <MenuFlyoutItem.Icon>
                                         <FontIcon Glyph="&#xE8B7;" />

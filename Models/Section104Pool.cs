@@ -9,6 +9,7 @@ public class PoolHistoryEntry
     public decimal Quantity { get; set; }
     public decimal Cost { get; set; }
     public string RefId { get; set; } = "";
+    public string Type { get; set; } = "";
 }
 
 public class Section104Pool
@@ -22,11 +23,11 @@ public class Section104Pool
     // Ordered list of acquisitions that make up the pool (excludes same-day/B&B matched portions)
     public List<PoolHistoryEntry> History { get; } = new();
 
-    public void AddTokens(decimal quantity, decimal cost, DateTimeOffset date = default, string refId = "")
+    public void AddTokens(decimal quantity, decimal cost, DateTimeOffset date = default, string refId = "", string type = "")
     {
         Quantity += quantity;
         PooledCost += cost;
-        History.Add(new PoolHistoryEntry { Date = date, Quantity = quantity, Cost = cost, RefId = refId });
+        History.Add(new PoolHistoryEntry { Date = date, Quantity = quantity, Cost = cost, RefId = refId, Type = type });
     }
 
     public decimal RemoveTokens(decimal quantity)

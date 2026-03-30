@@ -114,15 +114,37 @@
 
             <TextBlock Text="Data Location" Style="{StaticResource SubtitleTextBlockStyle}" />
             <TextBlock x:Name="DataPathText" Text="" IsTextSelectionEnabled="True" Opacity="0.7" TextWrapping="Wrap" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Change Data Folder..." Click="ChangeDataFolder_Click" />
+                <Button x:Name="ResetDataFolderBtn" Content="Reset to Default" Click="ResetDataFolder_Click" Visibility="Collapsed" />
+            </StackPanel>
+            <TextBlock Text="Set a custom path (e.g. OneDrive folder) to sync settings across devices. Ledger and FX cache stay local."
+                       Opacity="0.6" TextWrapping="Wrap" FontSize="12" />
+
+            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
+
+            <!-- ========== BACKUP / RESTORE ========== -->
+            <TextBlock Text="Backup &amp; Restore" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <TextBlock Text="Export all settings, manual entries, cost overrides, and notes to a single JSON file. Restore from a previous backup."
+                       TextWrapping="Wrap" Opacity="0.7" />
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button Content="Export Backup" Click="ExportBackup_Click" Style="{StaticResource AccentButtonStyle}" />
+                <Button Content="Restore from Backup" Click="RestoreBackup_Click" />
+            </StackPanel>
+            <TextBlock x:Name="BackupStatusText" Text="" Opacity="0.7" />
 
             <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
 
             <!-- ========== AUDIT LOG ========== -->
             <StackPanel Orientation="Horizontal" Spacing="12">
                 <TextBlock Text="Audit Log" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <TextBox x:Name="AuditSearchBox" PlaceholderText="Search..." Width="200" VerticalAlignment="Center"
+                         TextChanged="AuditSearch_TextChanged" />
+                <Button Content="Export CSV" Click="ExportAuditLog_Click" VerticalAlignment="Center" />
                 <Button Content="Clear Log" Click="ClearAuditLog_Click" VerticalAlignment="Center" />
             </StackPanel>
             <TextBlock Text="Records key actions for your records." Opacity="0.7" />
+            <TextBlock x:Name="AuditLogCountText" Text="" Opacity="0.6" FontSize="12" />
             <ListView x:Name="AuditLogList" SelectionMode="None" IsItemClickEnabled="False" MaxHeight="300">
                 <ListView.HeaderTemplate>
                     <DataTemplate>

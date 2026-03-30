@@ -16,7 +16,8 @@
       "Read(//c/Users/passp/AppData/Local/**)",
       "Read(//c/Users/passp/AppData/**)",
       "Bash(git grep:*)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(grep -n \"public\" \"C:/Code/CryptoTax2026/Models/\"*.cs)"
     ]
   }
 }

@@ -29,6 +29,7 @@ public sealed partial class PnlSummaryPage : Page
             _mainWindow = mw;
             _summaries = summaries.OrderBy(s => s.StartYear).ToList();
             BuildComparisonTable();
+            BuildMonthlyAccrual();
             BuildPnlCards();
         }
     }
@@ -53,8 +54,12 @@ public sealed partial class PnlSummaryPage : Page
             ("Gains", s => s.TotalGains, true),
             ("Losses", s => s.TotalLosses, true),
             ("Net Gain/Loss", s => s.NetGainOrLoss, true),
+            ("AEA", s => s.AnnualExemptAmount, false),
+            ("AEA Used", s => Math.Min(s.AnnualExemptAmount, Math.Max(0, s.NetGainOrLoss - s.LossesUsedThisYear)), false),
             ("Losses Carried In", s => s.LossesCarriedIn, false),
+            ("Losses Used", s => s.LossesUsedThisYear, false),
             ("Losses Carried Out", s => s.LossesCarriedOut, false),
+            ("Taxable Gain", s => s.TaxableGain, true),
             ("Staking Income", s => s.StakingIncome, false),
             ("CGT Due", s => s.CgtDue, true),
             ("No. Disposals", s => s.Disposals.Count, false),
@@ -275,6 +280,64 @@ public sealed partial class PnlSummaryPage : Page
         Grid.SetRow(tb, row);
         Grid.SetColumn(tb, col);
         grid.Children.Add(tb);
+    }
+
+    private void BuildMonthlyAccrual()
+    {
+        MonthlyAccrualGrid.Children.Clear();
+        MonthlyAccrualGrid.ColumnDefinitions.Clear();
+        MonthlyAccrualGrid.RowDefinitions.Clear();
+
+        var allDisposals = _summaries.SelectMany(s => s.Disposals).OrderBy(d => d.Date).ToList();
+        if (allDisposals.Count == 0) return;
+
+        // Group by year-month
+        var monthly = allDisposals
+            .GroupBy(d => new { d.Date.Year, d.Date.Month })
+            .Select(g => new
+            {
+                Label = $"{g.Key.Year}-{g.Key.Month:00}",
+                Gains = g.Where(d => d.GainOrLoss >= 0).Sum(d => d.GainOrLoss),
+                Losses = g.Where(d => d.GainOrLoss < 0).Sum(d => d.GainOrLoss),
+                Net = g.Sum(d => d.GainOrLoss),
+                Count = g.Count()
+            })
+            .ToList();
+
+        // Label column + one per month
+        MonthlyAccrualGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(100) });
+        foreach (var _ in monthly)
+            MonthlyAccrualGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
+
+        // Header row
+        MonthlyAccrualGrid.RowDefinitions.Add(new RowDefinition());
+        for (int c = 0; c < monthly.Count; c++)
+            AddGridCell(MonthlyAccrualGrid, 0, c + 1, monthly[c].Label, true, null, 0.7);
+
+        // Gains row
+        MonthlyAccrualGrid.RowDefinitions.Add(new RowDefinition());
+        AddGridCell(MonthlyAccrualGrid, 1, 0, "Gains");
+        for (int c = 0; c < monthly.Count; c++)
+            AddGridCell(MonthlyAccrualGrid, 1, c + 1, FormatGbp(monthly[c].Gains), false, Colors.Green);
+
+        // Losses row
+        MonthlyAccrualGrid.RowDefinitions.Add(new RowDefinition());
+        AddGridCell(MonthlyAccrualGrid, 2, 0, "Losses");
+        for (int c = 0; c < monthly.Count; c++)
+            AddGridCell(MonthlyAccrualGrid, 2, c + 1, FormatGbp(monthly[c].Losses), false, Colors.Red);
+
+        // Net row
+        MonthlyAccrualGrid.RowDefinitions.Add(new RowDefinition());
+        AddGridCell(MonthlyAccrualGrid, 3, 0, "Net", true);
+        for (int c = 0; c < monthly.Count; c++)
+            AddGridCell(MonthlyAccrualGrid, 3, c + 1, FormatGbp(monthly[c].Net), true,
+                monthly[c].Net >= 0 ? Colors.Green : Colors.Red);
+
+        // Disposals count
+        MonthlyAccrualGrid.RowDefinitions.Add(new RowDefinition());
+        AddGridCell(MonthlyAccrualGrid, 4, 0, "# Disposals");
+        for (int c = 0; c < monthly.Count; c++)
+            AddGridCell(MonthlyAccrualGrid, 4, c + 1, monthly[c].Count.ToString(), false, null, 0.6);
     }
 
     // ========== Export handlers ==========

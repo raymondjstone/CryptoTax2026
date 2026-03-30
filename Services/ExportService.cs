@@ -1126,6 +1126,398 @@ public class ExportService
         return table;
     }
 
+    // ========== SA108 PDF ==========
+
+    public void ExportSa108ToPdf(string filePath, TaxYearSummary summary)
+    {
+        var document = Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(40);
+                page.DefaultTextStyle(x => x.FontSize(10));
+
+                page.Header().Column(col =>
+                {
+                    col.Item().Text("SA108 Capital Gains Summary").FontSize(18).Bold();
+                    col.Item().Text($"Tax Year {summary.TaxYear} (6 April {summary.StartYear} to 5 April {summary.StartYear + 1})")
+                        .FontSize(11).Italic();
+                    col.Item().PaddingTop(4).Text("Pre-filled from CryptoTax2026 — verify all figures before submitting to HMRC.")
+                        .FontSize(8).Italic().FontColor(Colors.Grey.Darken1);
+                    col.Item().PaddingBottom(10).LineHorizontal(1);
+                });
+
+                page.Content().Column(col =>
+                {
+                    col.Item().Text("Listed shares and securities").FontSize(13).Bold();
+                    col.Item().PaddingTop(6).Text("These figures should be entered in the 'Listed shares and securities' section of the SA108 form.")
+                        .FontSize(9).Italic();
+
+                    col.Item().PaddingTop(12).Table(table =>
+                    {
+                        table.ColumnsDefinition(c =>
+                        {
+                            c.ConstantColumn(50);   // Box number
+                            c.RelativeColumn(4);    // Description
+                            c.RelativeColumn(2);    // Value
+                        });
+
+                        void Sa108Row(string box, string description, string value)
+                        {
+                            table.Cell().Background(Colors.Grey.Lighten3).Padding(8).Text(box).Bold().FontSize(11);
+                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(8).Text(description);
+                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(8)
+                                .AlignRight().Text(value).FontSize(12).Bold();
+                        }
+
+                        Sa108Row("Box 3", "Number of disposals", summary.Disposals.Count.ToString());
+                        Sa108Row("Box 4", "Disposal proceeds (total amount received or market value)", FormatGbp(summary.TotalDisposalProceeds));
+                        Sa108Row("Box 5", "Allowable costs (including purchase price and incidental costs)", FormatGbp(summary.TotalAllowableCosts));
+                        Sa108Row("Box 6", "Gains in the year, before losses", FormatGbp(summary.TotalGains));
+                        Sa108Row("Box 7", "If you are making a claim or election, put the relevant code in the box", "");
+                        Sa108Row("Box 8", "Losses in the year", FormatGbp(Math.Abs(summary.TotalLosses)));
+                    });
+
+                    // Additional boxes section
+                    col.Item().PaddingTop(20).Text("Capital Gains Tax summary").FontSize(13).Bold();
+                    col.Item().PaddingTop(6).Table(table =>
+                    {
+                        table.ColumnsDefinition(c =>
+                        {
+                            c.ConstantColumn(60);
+                            c.RelativeColumn(4);
+                            c.RelativeColumn(2);
+                        });
+
+                        void SummaryRow(string label, string description, string value)
+                        {
+                            table.Cell().Background(Colors.Grey.Lighten3).Padding(8).Text(label).Bold().FontSize(10);
+                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(8).Text(description);
+                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(8)
+                                .AlignRight().Text(value).FontSize(11).Bold();
+                        }
+
+                        SummaryRow("Box 6", "Total gains in the year, before losses", FormatGbp(summary.TotalGains));
+                        SummaryRow("Box 7", "Total losses in the year", FormatGbp(Math.Abs(summary.TotalLosses)));
+                        SummaryRow("Box 8", "Losses brought forward and used against gains", FormatGbp(summary.LossesUsedThisYear));
+                        SummaryRow("Box 9", "Net gains (Box 6 minus boxes 7 and 8)", FormatGbp(summary.NetGainOrLoss > 0 ? summary.NetGainOrLoss - summary.LossesUsedThisYear : 0));
+                        SummaryRow("Box 10", "Annual Exempt Amount", FormatGbp(summary.AnnualExemptAmount));
+                        SummaryRow("Box 11", "Taxable gain (Box 9 minus Box 10)", FormatGbp(summary.TaxableGain));
+                    });
+
+                    // Computation notes
+                    col.Item().PaddingTop(20).Text("Computation notes").FontSize(12).Bold();
+                    col.Item().PaddingTop(6).Table(table =>
+                    {
+                        table.ColumnsDefinition(c =>
+                        {
+                            c.RelativeColumn(2);
+                            c.RelativeColumn(1);
+                        });
+
+                        AddPdfRow(table, "Taxable income entered", FormatGbp(summary.TaxableIncome));
+                        AddPdfRow(table, "Other capital gains", FormatGbp(summary.OtherCapitalGains));
+                        AddPdfRow(table, "CGT basic rate", $"{summary.BasicRateCgt:P0}");
+                        AddPdfRow(table, "CGT higher/additional rate", $"{summary.HigherRateCgt:P0}");
+                        AddPdfRow(table, "Basic rate band remaining", FormatGbp(summary.BasicRateBand));
+                        AddPdfRow(table, "Personal allowance", FormatGbp(summary.PersonalAllowance));
+                        AddPdfRow(table, "Losses carried forward", FormatGbp(summary.LossesCarriedOut));
+                        AddPdfRow(table, "CAPITAL GAINS TAX DUE", FormatGbp(summary.CgtDue), true);
+                    });
+
+                    // Disposal schedule
+                    col.Item().PaddingTop(20).Text("Schedule of disposals").FontSize(12).Bold();
+                    col.Item().PaddingTop(6).Table(table =>
+                    {
+                        table.ColumnsDefinition(c =>
+                        {
+                            c.RelativeColumn(1.8f);
+                            c.RelativeColumn(1);
+                            c.RelativeColumn(1.5f);
+                            c.RelativeColumn(1.5f);
+                            c.RelativeColumn(1.5f);
+                            c.RelativeColumn(1.5f);
+                            c.RelativeColumn(1.5f);
+                        });
+
+                        table.Header(h =>
+                        {
+                            h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("Date").Bold().FontSize(8);
+                            h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("Asset").Bold().FontSize(8);
+                            h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("Quantity").Bold().FontSize(8);
+                            h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("Proceeds").Bold().FontSize(8);
+                            h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("Cost").Bold().FontSize(8);
+                            h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("Gain/Loss").Bold().FontSize(8);
+                            h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("Rule").Bold().FontSize(8);
+                        });
+
+                        foreach (var d in summary.Disposals.OrderBy(d => d.Date))
+                        {
+                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2).Text(d.Date.ToString("dd/MM/yyyy")).FontSize(8);
+                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2).Text(d.Asset).FontSize(8);
+                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2).Text(d.QuantityDisposed.ToString("0.########")).FontSize(8);
+                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2).Text(FormatGbp(d.DisposalProceeds)).FontSize(8);
+                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2).Text(FormatGbp(d.AllowableCost)).FontSize(8);
+                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2)
+                                .Text(FormatGbp(d.GainOrLoss)).FontSize(8)
+                                .FontColor(d.GainOrLoss < 0 ? Colors.Red.Medium : Colors.Black);
+                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2).Text(d.MatchingRule).FontSize(8);
+                        }
+                    });
+                });
+
+                page.Footer().AlignCenter().Text(t =>
+                {
+                    t.Span("SA108 Pre-fill — Generated by CryptoTax2026 on ");
+                    t.Span(DateTime.Now.ToString("dd MMM yyyy HH:mm"));
+                    t.Span(" | Page ");
+                    t.CurrentPageNumber();
+                    t.Span(" of ");
+                    t.TotalPages();
+                });
+            });
+        });
+
+        document.GeneratePdf(filePath);
+    }
+
+    // ========== ACCOUNTANT REPORT ==========
+
+    public void ExportAccountantReport(string filePath, List<TaxYearSummary> summaries,
+        Dictionary<string, Section104Pool> pools, List<CalculationWarning> warnings)
+    {
+        var ordered = summaries.OrderBy(s => s.StartYear).ToList();
+
+        var document = Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(30);
+                page.DefaultTextStyle(x => x.FontSize(9));
+
+                page.Header().Column(col =>
+                {
+                    col.Item().Text("Accountant-Ready Crypto Tax Summary").FontSize(16).Bold();
+                    col.Item().Text("Comprehensive capital gains and income report for professional review").FontSize(9).Italic();
+                    col.Item().PaddingBottom(10).LineHorizontal(1);
+                });
+
+                page.Content().Column(col =>
+                {
+                    // Executive summary
+                    col.Item().Text("Executive Summary").FontSize(13).Bold();
+                    col.Item().PaddingTop(5).Table(table =>
+                    {
+                        table.ColumnsDefinition(c =>
+                        {
+                            c.RelativeColumn(2);
+                            foreach (var _ in ordered) c.RelativeColumn(1.5f);
+                        });
+
+                        table.Header(h =>
+                        {
+                            h.Cell().Background(Colors.Grey.Lighten3).Padding(4).Text("Metric").Bold();
+                            foreach (var s in ordered)
+                                h.Cell().Background(Colors.Grey.Lighten3).Padding(4).AlignRight().Text(s.TaxYear).Bold();
+                        });
+
+                        void MetricRow(string label, Func<TaxYearSummary, decimal> fn, bool highlight = false)
+                        {
+                            var bg = highlight ? Colors.Blue.Lighten5 : Colors.White;
+                            table.Cell().Background(bg).Padding(3).Text(label).FontSize(8);
+                            foreach (var s in ordered)
+                                table.Cell().Background(bg).Padding(3).AlignRight().Text(FormatGbp(fn(s))).FontSize(8);
+                        }
+
+                        MetricRow("Total Disposal Proceeds", s => s.TotalDisposalProceeds);
+                        MetricRow("Total Allowable Costs", s => s.TotalAllowableCosts);
+                        MetricRow("Total Gains", s => s.TotalGains);
+                        MetricRow("Total Losses", s => s.TotalLosses);
+                        MetricRow("Net Gain/Loss", s => s.NetGainOrLoss, true);
+                        MetricRow("AEA Used", s => Math.Min(s.AnnualExemptAmount, Math.Max(0, s.NetGainOrLoss - s.LossesUsedThisYear)));
+                        MetricRow("Losses Brought Forward", s => s.LossesCarriedIn);
+                        MetricRow("Losses Used This Year", s => s.LossesUsedThisYear);
+                        MetricRow("Losses Carried Forward", s => s.LossesCarriedOut);
+                        MetricRow("Taxable Gain", s => s.TaxableGain, true);
+                        MetricRow("CGT Due", s => s.CgtDue, true);
+                        MetricRow("Staking / Misc Income", s => s.StakingIncome);
+                        MetricRow("Opening Portfolio", s => s.StartOfYearBalances.TotalGbpValue);
+                        MetricRow("Closing Portfolio", s => s.EndOfYearBalances.TotalGbpValue);
+                    });
+
+                    // Per-year SA108 boxes
+                    foreach (var summary in ordered)
+                    {
+                        col.Item().PaddingTop(15).Text($"SA108 Figures — {summary.TaxYear}").FontSize(12).Bold();
+                        col.Item().PaddingTop(4).Table(table =>
+                        {
+                            table.ColumnsDefinition(c =>
+                            {
+                                c.ConstantColumn(50);
+                                c.RelativeColumn(3);
+                                c.RelativeColumn(1.5f);
+                            });
+
+                            void BoxRow(string box, string desc, string val)
+                            {
+                                table.Cell().Background(Colors.Grey.Lighten3).Padding(4).Text(box).Bold().FontSize(8);
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4).Text(desc).FontSize(8);
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4).AlignRight().Text(val).Bold().FontSize(9);
+                            }
+
+                            BoxRow("Box 3", "Number of disposals", summary.Disposals.Count.ToString());
+                            BoxRow("Box 4", "Disposal proceeds", FormatGbp(summary.TotalDisposalProceeds));
+                            BoxRow("Box 5", "Allowable costs", FormatGbp(summary.TotalAllowableCosts));
+                            BoxRow("Box 6", "Gains in the year", FormatGbp(summary.TotalGains));
+                            BoxRow("Box 7", "Losses in the year", FormatGbp(Math.Abs(summary.TotalLosses)));
+                            BoxRow("Box 8", "Losses brought forward & used", FormatGbp(summary.LossesUsedThisYear));
+                        });
+
+                        // Disposal schedule for this year
+                        col.Item().PaddingTop(6).Text($"Disposal schedule ({summary.Disposals.Count} disposals)").FontSize(10).Bold();
+                        col.Item().PaddingTop(3).Table(table =>
+                        {
+                            table.ColumnsDefinition(c =>
+                            {
+                                c.RelativeColumn(1.5f);
+                                c.RelativeColumn(1);
+                                c.RelativeColumn(1.5f);
+                                c.RelativeColumn(1.5f);
+                                c.RelativeColumn(1.5f);
+                                c.RelativeColumn(1.5f);
+                                c.RelativeColumn(1.5f);
+                            });
+
+                            table.Header(h =>
+                            {
+                                h.Cell().Background(Colors.Grey.Lighten3).Padding(2).Text("Date").Bold().FontSize(7);
+                                h.Cell().Background(Colors.Grey.Lighten3).Padding(2).Text("Asset").Bold().FontSize(7);
+                                h.Cell().Background(Colors.Grey.Lighten3).Padding(2).Text("Quantity").Bold().FontSize(7);
+                                h.Cell().Background(Colors.Grey.Lighten3).Padding(2).Text("Proceeds").Bold().FontSize(7);
+                                h.Cell().Background(Colors.Grey.Lighten3).Padding(2).Text("Cost").Bold().FontSize(7);
+                                h.Cell().Background(Colors.Grey.Lighten3).Padding(2).Text("Gain/Loss").Bold().FontSize(7);
+                                h.Cell().Background(Colors.Grey.Lighten3).Padding(2).Text("Rule").Bold().FontSize(7);
+                            });
+
+                            foreach (var d in summary.Disposals.OrderBy(d => d.Date))
+                            {
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(1).Text(d.Date.ToString("dd/MM/yyyy")).FontSize(7);
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(1).Text(d.Asset).FontSize(7);
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(1).Text(d.QuantityDisposed.ToString("0.####")).FontSize(7);
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(1).Text(FormatGbp(d.DisposalProceeds)).FontSize(7);
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(1).Text(FormatGbp(d.AllowableCost)).FontSize(7);
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(1)
+                                    .Text(FormatGbp(d.GainOrLoss)).FontSize(7)
+                                    .FontColor(d.GainOrLoss < 0 ? Colors.Red.Medium : Colors.Black);
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(1).Text(d.MatchingRule).FontSize(7);
+                            }
+                        });
+
+                        // Staking income for this year
+                        if (summary.StakingRewards.Count > 0)
+                        {
+                            col.Item().PaddingTop(6).Text($"Staking / Misc Income — {FormatGbp(summary.StakingIncome)}").FontSize(10).Bold();
+                            col.Item().Text("Taxed as miscellaneous income under ITTOIA 2005, separate from CGT.").FontSize(7).Italic();
+                        }
+                    }
+
+                    // Section 104 pools (final state)
+                    if (pools.Count > 0)
+                    {
+                        col.Item().PageBreak();
+                        col.Item().Text("Section 104 Pool State (Final)").FontSize(13).Bold();
+                        col.Item().Text("Shows the current state of all Section 104 pools after processing all disposals.").FontSize(8).Italic();
+
+                        col.Item().PaddingTop(6).Table(table =>
+                        {
+                            table.ColumnsDefinition(c =>
+                            {
+                                c.RelativeColumn(1.2f);
+                                c.RelativeColumn(2);
+                                c.RelativeColumn(1.5f);
+                                c.RelativeColumn(1.5f);
+                            });
+
+                            table.Header(h =>
+                            {
+                                h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("Asset").Bold().FontSize(8);
+                                h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("Quantity").Bold().FontSize(8);
+                                h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("Pooled Cost").Bold().FontSize(8);
+                                h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("Avg Cost/Unit").Bold().FontSize(8);
+                            });
+
+                            foreach (var p in pools.Values.Where(p => p.Quantity > 0.00000001m).OrderByDescending(p => p.PooledCost))
+                            {
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2).Text(p.Asset).FontSize(8);
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2).Text(p.Quantity.ToString("0.########")).FontSize(8);
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2).Text(FormatGbp(p.PooledCost)).FontSize(8);
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2).Text(FormatGbp(p.CostPerUnit)).FontSize(8);
+                            }
+                        });
+                    }
+
+                    // Warnings
+                    if (warnings.Count > 0)
+                    {
+                        col.Item().PaddingTop(15).Text($"Data Issues & Warnings ({warnings.Count})").FontSize(12).Bold()
+                            .FontColor(Colors.Orange.Darken2);
+                        col.Item().PaddingTop(4).Table(table =>
+                        {
+                            table.ColumnsDefinition(c =>
+                            {
+                                c.RelativeColumn(1);
+                                c.RelativeColumn(1.2f);
+                                c.RelativeColumn(1.5f);
+                                c.RelativeColumn(5);
+                            });
+
+                            table.Header(h =>
+                            {
+                                h.Cell().Background(Colors.Orange.Lighten4).Padding(3).Text("Level").Bold().FontSize(7);
+                                h.Cell().Background(Colors.Orange.Lighten4).Padding(3).Text("Category").Bold().FontSize(7);
+                                h.Cell().Background(Colors.Orange.Lighten4).Padding(3).Text("Date").Bold().FontSize(7);
+                                h.Cell().Background(Colors.Orange.Lighten4).Padding(3).Text("Message").Bold().FontSize(7);
+                            });
+
+                            foreach (var w in warnings.OrderByDescending(w => w.Level).ThenBy(w => w.Date).Take(100))
+                            {
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2)
+                                    .Text(w.Level.ToString().ToUpper()).FontSize(7).Bold()
+                                    .FontColor(w.Level == WarningLevel.Error ? Colors.Red.Medium : Colors.Orange.Darken1);
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2).Text(w.Category).FontSize(7);
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2).Text(w.DateFormatted).FontSize(7);
+                                table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2).Text(w.Message).FontSize(7);
+                            }
+                        });
+                    }
+
+                    // Methodology note
+                    col.Item().PaddingTop(15).Text("Methodology").FontSize(12).Bold();
+                    col.Item().PaddingTop(4).Text("Calculations follow HMRC guidance for crypto asset disposals:").FontSize(8);
+                    col.Item().PaddingLeft(10).Text("• Same-day rule: acquisitions on the same day as a disposal are matched first (TCGA 1992 s105)").FontSize(8);
+                    col.Item().PaddingLeft(10).Text("• Bed and Breakfast rule: acquisitions within 30 days after a disposal are matched next (TCGA 1992 s106A)").FontSize(8);
+                    col.Item().PaddingLeft(10).Text("• Section 104 pool: remaining disposals are matched against the average cost pool (TCGA 1992 s104)").FontSize(8);
+                    col.Item().PaddingLeft(10).Text("• Staking/airdrop/mining income is valued at market rate on receipt date (ITTOIA 2005)").FontSize(8);
+                    col.Item().PaddingLeft(10).Text("• FX conversion uses Kraken and CryptoCompare daily rates with GBP cross where available").FontSize(8);
+                });
+
+                page.Footer().AlignCenter().Text(t =>
+                {
+                    t.Span("Accountant Report — Generated by CryptoTax2026 on ");
+                    t.Span(DateTime.Now.ToString("dd MMM yyyy HH:mm"));
+                    t.Span(" | Page ");
+                    t.CurrentPageNumber();
+                    t.Span(" of ");
+                    t.TotalPages();
+                });
+            });
+        });
+
+        document.GeneratePdf(filePath);
+    }
+
     private static string FormatGbp(decimal amount)
     {
         return amount < 0 ? $"-\u00a3{Math.Abs(amount):#,##0.00}" : $"\u00a3{amount:#,##0.00}";

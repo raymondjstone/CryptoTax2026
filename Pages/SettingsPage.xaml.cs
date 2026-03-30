@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using Windows.Storage.Pickers;
 using CryptoTax2026.Models;
 using CryptoTax2026.Services;
 
@@ -40,7 +43,9 @@ public sealed partial class SettingsPage : Page
 
         ApiKeyBox.Text = _mainWindow.Settings.KrakenApiKey;
         ApiSecretBox.Password = _mainWindow.Settings.KrakenApiSecret;
-        DataPathText.Text = _mainWindow.StorageService.GetDataFolderPath();
+        DataPathText.Text = _mainWindow.Settings.CustomDataPath ?? _mainWindow.StorageService.GetDataFolderPath();
+        if (_mainWindow.Settings.CustomDataPath != null)
+            ResetDataFolderBtn.Visibility = Visibility.Visible;
     }
 
     private void UpdateLedgerStatus()
@@ -478,10 +483,52 @@ public sealed partial class SettingsPage : Page
     {
         if (_mainWindow == null) return;
 
-        AuditLogList.ItemsSource = _mainWindow.Settings.AuditLog
+        var searchText = AuditSearchBox?.Text?.Trim() ?? "";
+        var entries = _mainWindow.Settings.AuditLog.AsEnumerable();
+
+        if (!string.IsNullOrEmpty(searchText))
+        {
+            entries = entries.Where(e =>
+                e.Action.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+                e.Detail.Contains(searchText, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var list = entries
             .OrderByDescending(e => e.Timestamp)
             .Select(e => new AuditLogViewModel(e))
             .ToList();
+
+        AuditLogList.ItemsSource = list;
+        if (AuditLogCountText != null)
+            AuditLogCountText.Text = $"Showing {list.Count} of {_mainWindow.Settings.AuditLog.Count} entries";
+    }
+
+    private void AuditSearch_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        LoadAuditLog();
+    }
+
+    private async void ExportAuditLog_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mainWindow == null || _mainWindow.Settings.AuditLog.Count == 0) return;
+
+        var picker = new FileSavePicker();
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_mainWindow);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+        picker.SuggestedFileName = "CryptoTax2026_AuditLog";
+        picker.FileTypeChoices.Add("CSV File", new List<string> { ".csv" });
+
+        var file = await picker.PickSaveFileAsync();
+        if (file == null) return;
+
+        var lines = new List<string> { "Timestamp,Action,Detail" };
+        foreach (var entry in _mainWindow.Settings.AuditLog.OrderByDescending(e2 => e2.Timestamp))
+        {
+            lines.Add($"{entry.Timestamp.LocalDateTime:dd/MM/yyyy HH:mm:ss},\"{entry.Action}\",\"{entry.Detail.Replace("\"", "\"\"")}\"");
+        }
+        await File.WriteAllLinesAsync(file.Path, lines);
+        BackupStatusText.Text = $"Audit log exported to {file.Path}";
     }
 
     private async void ClearAuditLog_Click(object sender, RoutedEventArgs e)
@@ -490,6 +537,146 @@ public sealed partial class SettingsPage : Page
         _mainWindow.Settings.AuditLog.Clear();
         await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
         LoadAuditLog();
+    }
+
+    // ========== DATA FOLDER ==========
+
+    private async void ChangeDataFolder_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mainWindow == null) return;
+
+        var picker = new Windows.Storage.Pickers.FolderPicker();
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_mainWindow);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+        picker.FileTypeFilter.Add("*");
+
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder == null) return;
+
+        _mainWindow.Settings.CustomDataPath = folder.Path;
+        await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
+        DataPathText.Text = folder.Path;
+        ResetDataFolderBtn.Visibility = Visibility.Visible;
+
+        InfoMessage.Message = $"Custom data path set to {folder.Path}. Settings will be saved there on next restart.";
+        InfoMessage.Severity = InfoBarSeverity.Success;
+        InfoMessage.IsOpen = true;
+    }
+
+    private async void ResetDataFolder_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mainWindow == null) return;
+
+        _mainWindow.Settings.CustomDataPath = null;
+        await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
+        DataPathText.Text = _mainWindow.StorageService.GetDataFolderPath();
+        ResetDataFolderBtn.Visibility = Visibility.Collapsed;
+
+        InfoMessage.Message = "Data path reset to default.";
+        InfoMessage.Severity = InfoBarSeverity.Success;
+        InfoMessage.IsOpen = true;
+    }
+
+    // ========== BACKUP / RESTORE ==========
+
+    private async void ExportBackup_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mainWindow == null) return;
+
+        var picker = new FileSavePicker();
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_mainWindow);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+        picker.SuggestedFileName = $"CryptoTax2026_Backup_{DateTime.Now:yyyy-MM-dd_HHmmss}";
+        picker.FileTypeChoices.Add("JSON File", new List<string> { ".json" });
+
+        var file = await picker.PickSaveFileAsync();
+        if (file == null) return;
+
+        try
+        {
+            var json = JsonSerializer.Serialize(_mainWindow.Settings, new JsonSerializerOptions { WriteIndented = true });
+            await File.WriteAllTextAsync(file.Path, json);
+
+            _mainWindow.AddAuditEntry("Backup", $"Settings exported to {file.Path}");
+            await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
+
+            BackupStatusText.Text = $"Backup saved to {file.Path}";
+            InfoMessage.Message = "Backup exported successfully.";
+            InfoMessage.Severity = InfoBarSeverity.Success;
+            InfoMessage.IsOpen = true;
+        }
+        catch (Exception ex)
+        {
+            InfoMessage.Message = $"Backup failed: {ex.Message}";
+            InfoMessage.Severity = InfoBarSeverity.Error;
+            InfoMessage.IsOpen = true;
+        }
+    }
+
+    private async void RestoreBackup_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mainWindow == null) return;
+
+        var picker = new Windows.Storage.Pickers.FileOpenPicker();
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_mainWindow);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+        picker.FileTypeFilter.Add(".json");
+
+        var file = await picker.PickSingleFileAsync();
+        if (file == null) return;
+
+        try
+        {
+            var json = await File.ReadAllTextAsync(file.Path);
+            var restored = JsonSerializer.Deserialize<AppSettings>(json);
+            if (restored == null)
+            {
+                InfoMessage.Message = "Invalid backup file.";
+                InfoMessage.Severity = InfoBarSeverity.Error;
+                InfoMessage.IsOpen = true;
+                return;
+            }
+
+            // Confirm
+            var dialog = new ContentDialog
+            {
+                Title = "Restore Backup",
+                Content = $"This will replace all current settings with the backup from {file.Name}. " +
+                    $"The backup contains {restored.ManualLedgerEntries.Count} manual entries, " +
+                    $"{restored.CostBasisOverrides.Count} cost overrides, " +
+                    $"{restored.DelistedAssets.Count} delisted assets. Continue?",
+                PrimaryButtonText = "Restore",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = this.XamlRoot
+            };
+
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+            // Preserve window position from current settings
+            restored.WindowX = _mainWindow.Settings.WindowX;
+            restored.WindowY = _mainWindow.Settings.WindowY;
+            restored.WindowWidth = _mainWindow.Settings.WindowWidth;
+            restored.WindowHeight = _mainWindow.Settings.WindowHeight;
+            restored.IsMaximized = _mainWindow.Settings.IsMaximized;
+
+            await _mainWindow.StorageService.SaveSettingsAsync(restored);
+
+            InfoMessage.Message = "Backup restored. Restart the app to apply all changes.";
+            InfoMessage.Severity = InfoBarSeverity.Success;
+            InfoMessage.IsOpen = true;
+
+            BackupStatusText.Text = $"Restored from {file.Name}";
+        }
+        catch (Exception ex)
+        {
+            InfoMessage.Message = $"Restore failed: {ex.Message}";
+            InfoMessage.Severity = InfoBarSeverity.Error;
+            InfoMessage.IsOpen = true;
+        }
     }
 }
 

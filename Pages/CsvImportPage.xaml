@@ -16,6 +16,34 @@
             <TextBlock Text="Import trades from other exchanges (Coinbase, Binance, etc.) by mapping CSV columns to the required fields."
                        TextWrapping="Wrap" Opacity="0.7" />
 
+            <!-- Quick Import from known exchange -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="16"
+                    BorderBrush="{ThemeResource SystemFillColorAttentionBrush}" BorderThickness="1">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Quick Import — Supported Exchanges" FontWeight="SemiBold" />
+                    <TextBlock Text="Select your exchange and pick a CSV file. Column mapping is automatic."
+                               Opacity="0.7" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <ComboBox x:Name="ExchangeSelector" Header="Exchange" Width="180"
+                                  PlaceholderText="Select exchange">
+                            <ComboBoxItem Content="Coinbase" Tag="Coinbase" />
+                            <ComboBoxItem Content="Binance" Tag="Binance" />
+                            <ComboBoxItem Content="Crypto.com" Tag="Crypto.com" />
+                            <ComboBoxItem Content="Bybit" Tag="Bybit" />
+                        </ComboBox>
+                        <Button Content="Import Exchange CSV" Click="QuickImport_Click"
+                                Style="{StaticResource AccentButtonStyle}" VerticalAlignment="Bottom" />
+                    </StackPanel>
+                    <TextBlock x:Name="ExchangeDescription" Text="" Opacity="0.6" FontStyle="Italic" />
+                </StackPanel>
+            </Border>
+
+            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,4" />
+
+            <TextBlock Text="Custom CSV Import" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <TextBlock Text="For exchanges not listed above, map columns manually below." Opacity="0.7" TextWrapping="Wrap" />
+
             <!-- Profile selector -->
             <StackPanel Orientation="Horizontal" Spacing="12">
                 <ComboBox x:Name="ProfileBox" Header="Import Profile" Width="200"

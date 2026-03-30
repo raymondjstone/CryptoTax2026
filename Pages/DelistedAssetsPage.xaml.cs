@@ -35,6 +35,7 @@ public sealed partial class DelistedAssetsPage : Page
                 Asset = d.Asset,
                 DateFormatted = d.DelistingDate.ToString("dd/MM/yyyy"),
                 Notes = d.Notes,
+                ClaimType = d.ClaimType,
                 Index = i
             })
             .ToList();
@@ -81,11 +82,13 @@ public sealed partial class DelistedAssetsPage : Page
             return;
         }
 
+        var claimType = (ClaimTypeBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Delisted";
         _mainWindow.Settings.DelistedAssets.Add(new DelistedAssetEvent
         {
             Asset = normalised,
             DelistingDate = delistingDate,
-            Notes = notes
+            Notes = notes,
+            ClaimType = claimType
         });
 
         await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
@@ -130,5 +133,9 @@ public class DelistedAssetViewModel
     public string Asset { get; set; } = "";
     public string DateFormatted { get; set; } = "";
     public string Notes { get; set; } = "";
+    public string ClaimType { get; set; } = "Delisted";
     public int Index { get; set; }
+    public string DisplayText => string.IsNullOrEmpty(Notes)
+        ? $"[{ClaimType}]"
+        : $"[{ClaimType}] {Notes}";
 }

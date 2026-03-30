@@ -51,6 +51,33 @@
                 </StackPanel>
             </Border>
 
+            <!-- Amended return diff -->
+            <Border x:Name="AmendedDiffPanel" Visibility="Collapsed"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20"
+                    BorderBrush="{ThemeResource SystemFillColorCautionBrush}" BorderThickness="1">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Amended Return Diff" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock Text="Shows changes if you recalculate after modifying cost overrides, delisted assets, or manual entries."
+                               Opacity="0.7" TextWrapping="Wrap" />
+                    <Grid x:Name="AmendedDiffGrid" ColumnSpacing="16" RowSpacing="4" />
+                </StackPanel>
+            </Border>
+
+            <!-- Monthly CGT accrual -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Monthly Gain/Loss Breakdown" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock Text="Shows cumulative gains and losses month by month across all tax years."
+                               Opacity="0.7" TextWrapping="Wrap" />
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                        <Grid x:Name="MonthlyAccrualGrid" ColumnSpacing="4" RowSpacing="4" />
+                    </ScrollViewer>
+                </StackPanel>
+            </Border>
+
             <!-- P&L sections will be added dynamically -->
             <StackPanel x:Name="PnlContainer" Spacing="16" />
 

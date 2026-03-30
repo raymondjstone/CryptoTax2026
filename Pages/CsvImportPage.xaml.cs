@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 using Windows.Storage.Pickers;
 using CryptoTax2026.Models;
+using CryptoTax2026.Services;
 
 namespace CryptoTax2026.Pages;
 
@@ -57,6 +58,66 @@ public sealed partial class CsvImportPage : Page
         MapPrice.Text = mapping.PriceColumn;
         MapQuoteCurrency.Text = mapping.QuoteCurrencyColumn;
         HasHeaderCheck.IsChecked = mapping.HasHeader;
+    }
+
+    private async void QuickImport_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mainWindow == null) return;
+
+        if (ExchangeSelector.SelectedItem is not Microsoft.UI.Xaml.Controls.ComboBoxItem selectedItem)
+        {
+            ShowInfo("Select an exchange first.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var exchangeName = selectedItem.Tag?.ToString();
+        if (string.IsNullOrEmpty(exchangeName) || !ExchangeCsvParsers.Profiles.TryGetValue(exchangeName, out var profile))
+        {
+            ShowInfo("Unknown exchange.", InfoBarSeverity.Error);
+            return;
+        }
+
+        var picker = new FileOpenPicker();
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_mainWindow);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+        picker.FileTypeFilter.Add(".csv");
+        picker.FileTypeFilter.Add(".txt");
+
+        var file = await picker.PickSingleFileAsync();
+        if (file == null) return;
+
+        try
+        {
+            var lines = await File.ReadAllLinesAsync(file.Path);
+            if (lines.Length == 0)
+            {
+                ShowInfo("File is empty.", InfoBarSeverity.Warning);
+                return;
+            }
+
+            var sourceName = $"{exchangeName} CSV";
+            var (entries, errors) = ExchangeCsvParsers.Parse(lines, profile, sourceName);
+
+            var (unique, dupes) = DeduplicateEntries(entries);
+            _mainWindow.Settings.ManualLedgerEntries.AddRange(unique);
+            _mainWindow.AddAuditEntry("CSV Import", $"{exchangeName}: {unique.Count} entries from {Path.GetFileName(file.Path)}" +
+                (dupes > 0 ? $" ({dupes} duplicates skipped)" : ""));
+            await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
+            RefreshImportedEntries();
+
+            var msg = $"Imported {unique.Count} entries from {exchangeName} ({Path.GetFileName(file.Path)}).";
+            if (dupes > 0) msg += $" {dupes} duplicates skipped.";
+            if (errors > 0) msg += $" {errors} rows could not be parsed.";
+            ShowInfo(msg, errors > 0 ? InfoBarSeverity.Warning : InfoBarSeverity.Success);
+
+            if (_mainWindow.FxService != null && _mainWindow.Ledger.Count > 0)
+                await _mainWindow.RecalculateAndBuildTabsAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowInfo($"Import failed: {ex.Message}", InfoBarSeverity.Error);
+        }
     }
 
     private async void SaveProfile_Click(object sender, RoutedEventArgs e)
@@ -203,11 +264,13 @@ public sealed partial class CsvImportPage : Page
                 });
             }
 
-            _mainWindow.Settings.ManualLedgerEntries.AddRange(imported);
+            var (uniqueImported, importDupes) = DeduplicateEntries(imported);
+            _mainWindow.Settings.ManualLedgerEntries.AddRange(uniqueImported);
             await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
             RefreshImportedEntries();
 
-            var msg = $"Imported {imported.Count} entries from {Path.GetFileName(file.Path)}.";
+            var msg = $"Imported {uniqueImported.Count} entries from {Path.GetFileName(file.Path)}.";
+            if (importDupes > 0) msg += $" {importDupes} duplicates skipped.";
             if (errors > 0) msg += $" {errors} rows skipped due to parse errors.";
             ShowInfo(msg, errors > 0 ? InfoBarSeverity.Warning : InfoBarSeverity.Success);
 
@@ -274,6 +337,52 @@ public sealed partial class CsvImportPage : Page
         }
         fields.Add(current.ToString());
         return fields.ToArray();
+    }
+
+    /// <summary>
+    /// Removes entries from newEntries that already exist in ManualLedgerEntries or Kraken ledger.
+    /// Match by (date rounded to minute, normalised asset, amount, type).
+    /// Returns (deduplicated list, number of duplicates found).
+    /// </summary>
+    private (List<ManualLedgerEntry> Unique, int Duplicates) DeduplicateEntries(List<ManualLedgerEntry> newEntries)
+    {
+        if (_mainWindow == null) return (newEntries, 0);
+
+        // Build a set of existing entry signatures
+        var existingKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // From manual/CSV entries
+        foreach (var m in _mainWindow.Settings.ManualLedgerEntries)
+        {
+            var key = $"{m.Date.ToUnixTimeSeconds() / 60}|{m.NormalisedAsset}|{m.Amount:0.########}|{m.Type}";
+            existingKeys.Add(key);
+        }
+
+        // From Kraken ledger
+        foreach (var k in _mainWindow.Ledger)
+        {
+            var key = $"{(long)(k.Time / 60)}|{k.NormalisedAsset}|{k.Amount:0.########}|{k.Type}";
+            existingKeys.Add(key);
+        }
+
+        var unique = new List<ManualLedgerEntry>();
+        int dupes = 0;
+
+        foreach (var entry in newEntries)
+        {
+            var key = $"{entry.Date.ToUnixTimeSeconds() / 60}|{entry.NormalisedAsset}|{entry.Amount:0.########}|{entry.Type}";
+            if (existingKeys.Contains(key))
+            {
+                dupes++;
+            }
+            else
+            {
+                existingKeys.Add(key); // prevent intra-file dupes
+                unique.Add(entry);
+            }
+        }
+
+        return (unique, dupes);
     }
 
     private void ShowInfo(string msg, InfoBarSeverity severity)

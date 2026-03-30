@@ -7,7 +7,9 @@ using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Windows.Graphics;
+using Windows.System;
 using CryptoTax2026.Models;
 using CryptoTax2026.Pages;
 using CryptoTax2026.Services;
@@ -25,6 +27,7 @@ public sealed partial class MainWindow : Window
     private List<CalculationWarning> _warnings = new();
     private AppSettings _settings = new();
     private FxConversionService? _fxService;
+    private Dictionary<string, Section104Pool> _finalPools = new();
 
     private AppWindow _appWindow = null!;
 
@@ -41,6 +44,17 @@ public sealed partial class MainWindow : Window
         SetTitleBar(AppTitleBar);
 
         Closed += MainWindow_Closed;
+
+        // Keyboard shortcuts
+        Content.KeyboardAccelerators.Add(CreateAccelerator(VirtualKey.Number1, VirtualKeyModifiers.Control, (_, _) => NavigateToTab(0)));
+        Content.KeyboardAccelerators.Add(CreateAccelerator(VirtualKey.Number2, VirtualKeyModifiers.Control, (_, _) => NavigateToTab(1)));
+        Content.KeyboardAccelerators.Add(CreateAccelerator(VirtualKey.Number3, VirtualKeyModifiers.Control, (_, _) => NavigateToTab(2)));
+        Content.KeyboardAccelerators.Add(CreateAccelerator(VirtualKey.Number4, VirtualKeyModifiers.Control, (_, _) => NavigateToTab(3)));
+        Content.KeyboardAccelerators.Add(CreateAccelerator(VirtualKey.Number5, VirtualKeyModifiers.Control, (_, _) => NavigateToTab(4)));
+        Content.KeyboardAccelerators.Add(CreateAccelerator(VirtualKey.Number6, VirtualKeyModifiers.Control, (_, _) => NavigateToTab(5)));
+        Content.KeyboardAccelerators.Add(CreateAccelerator(VirtualKey.Number7, VirtualKeyModifiers.Control, (_, _) => NavigateToTab(6)));
+        Content.KeyboardAccelerators.Add(CreateAccelerator(VirtualKey.Number8, VirtualKeyModifiers.Control, (_, _) => NavigateToTab(7)));
+        Content.KeyboardAccelerators.Add(CreateAccelerator(VirtualKey.Number9, VirtualKeyModifiers.Control, (_, _) => NavigateToTab(8)));
 
         LoadDataAsync();
     }
@@ -132,6 +146,7 @@ public sealed partial class MainWindow : Window
 
         var cgtService = new CgtCalculationService(_fxService, _warnings, _trades, _settings.DelistedAssets, _settings.CostBasisOverrides);
         _taxYearSummaries = cgtService.CalculateAllTaxYears(GetMergedLedger(), _settings.TaxYearInputs);
+        _finalPools = cgtService.FinalPools;
 
         RebuildTabs();
     }
@@ -152,6 +167,7 @@ public sealed partial class MainWindow : Window
 
         var cgtService = new CgtCalculationService(_fxService, _warnings, _trades, _settings.DelistedAssets, _settings.CostBasisOverrides);
         _taxYearSummaries = cgtService.CalculateAllTaxYears(GetMergedLedger(), _settings.TaxYearInputs);
+        _finalPools = cgtService.FinalPools;
 
         RebuildTabs();
         return Task.CompletedTask;
@@ -169,6 +185,7 @@ public sealed partial class MainWindow : Window
 
         var cgtService = new CgtCalculationService(_fxService, _warnings, _trades, _settings.DelistedAssets, _settings.CostBasisOverrides);
         _taxYearSummaries = cgtService.CalculateAllTaxYears(GetMergedLedger(), _settings.TaxYearInputs);
+        _finalPools = cgtService.FinalPools;
 
         RebuildTabs();
         await Task.CompletedTask;
@@ -187,6 +204,26 @@ public sealed partial class MainWindow : Window
                 Content = "P&L Summary",
                 Tag = "PnLSummary",
                 Icon = new SymbolIcon(Symbol.Library)
+            });
+        }
+
+        if (_finalPools.Count > 0)
+        {
+            NavView.MenuItems.Add(new NavigationViewItem
+            {
+                Content = "Holdings",
+                Tag = "Holdings",
+                Icon = new SymbolIcon(Symbol.AllApps)
+            });
+        }
+
+        if (_finalPools.Count > 0 && _taxYearSummaries.Count > 0)
+        {
+            NavView.MenuItems.Add(new NavigationViewItem
+            {
+                Content = "Tools",
+                Tag = "Tools",
+                Icon = new SymbolIcon(Symbol.Repair)
             });
         }
 
@@ -236,6 +273,14 @@ public sealed partial class MainWindow : Window
             else if (tag == "CsvImport")
             {
                 ContentFrame.Navigate(typeof(CsvImportPage), this);
+            }
+            else if (tag == "Holdings")
+            {
+                ContentFrame.Navigate(typeof(HoldingsPage), this);
+            }
+            else if (tag == "Tools")
+            {
+                ContentFrame.Navigate(typeof(ToolsPage), this);
             }
             else if (tag == "PnLSummary")
             {
@@ -302,6 +347,21 @@ public sealed partial class MainWindow : Window
     public List<TaxYearSummary> TaxYearSummaries => _taxYearSummaries;
     public List<CalculationWarning> Warnings => _warnings;
     public FxConversionService? FxService => _fxService;
+    public Dictionary<string, Section104Pool> FinalPools => _finalPools;
+
+    private static KeyboardAccelerator CreateAccelerator(VirtualKey key, VirtualKeyModifiers modifiers,
+        Windows.Foundation.TypedEventHandler<KeyboardAccelerator, KeyboardAcceleratorInvokedEventArgs> handler)
+    {
+        var accel = new KeyboardAccelerator { Key = key, Modifiers = modifiers };
+        accel.Invoked += handler;
+        return accel;
+    }
+
+    private void NavigateToTab(int index)
+    {
+        if (index >= 0 && index < NavView.MenuItems.Count)
+            NavView.SelectedItem = NavView.MenuItems[index];
+    }
 
     private void RestoreWindowPosition()
     {
