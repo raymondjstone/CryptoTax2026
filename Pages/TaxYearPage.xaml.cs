@@ -30,9 +30,21 @@ public sealed partial class TaxYearPage : Page
         {
             _mainWindow = mw;
             _summary = summary;
-            _isLoading = true;
-            LoadData();
-            _isLoading = false;
+
+            // Show loading state immediately, then defer heavy work so the
+            // ProgressRing has a chance to render before we block the UI thread.
+            LoadingPanel.Visibility = Visibility.Visible;
+            ContentScroller.Visibility = Visibility.Collapsed;
+
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                _isLoading = true;
+                LoadData();
+                _isLoading = false;
+
+                LoadingPanel.Visibility = Visibility.Collapsed;
+                ContentScroller.Visibility = Visibility.Visible;
+            });
         }
     }
 

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="CryptoTax2026.Pages.DelistedAssetsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    NavigationCacheMode="Required">
+
+    <ScrollViewer Padding="0,0,20,0">
+        <StackPanel Spacing="16" MaxWidth="800" HorizontalAlignment="Left">
+
+            <TextBlock Text="Delisted Assets" Style="{StaticResource TitleTextBlockStyle}" />
+            <InfoBar x:Name="InfoMessage" IsOpen="False" />
+
+            <TextBlock Text="Mark assets as delisted. On the delisting date, the entire holding is treated as disposed at £0 (crystallising a loss). Any ledger entries after that date are ignored."
+                       TextWrapping="Wrap" Opacity="0.7" />
+
+            <ListView x:Name="DelistedAssetsList" SelectionMode="None" MaxWidth="750" HorizontalAlignment="Left">
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <Grid ColumnSpacing="12" Padding="0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="100" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{Binding Asset}" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="1" Text="{Binding DateFormatted}" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="2" Text="{Binding Notes}" VerticalAlignment="Center" Opacity="0.7" TextTrimming="CharacterEllipsis" />
+                            <Button Grid.Column="3" Content="Remove" Tag="{Binding Index}"
+                                    Click="RemoveDelistedAsset_Click" Padding="8,4" />
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+
+            <TextBlock x:Name="EmptyMessage" Text="No delisted assets configured." Opacity="0.5" FontStyle="Italic" />
+
+            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
+
+            <TextBlock Text="Add Delisting Event" Style="{StaticResource SubtitleTextBlockStyle}" />
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBox x:Name="DelistAssetBox" Header="Asset" PlaceholderText="e.g. LUNA" Width="120" />
+                <DatePicker x:Name="DelistDatePicker" Header="Delisting Date" />
+                <TextBox x:Name="DelistNotesBox" Header="Notes" PlaceholderText="Optional notes" Width="200" />
+                <Button x:Name="AddDelistedBtn" Content="Add" Style="{StaticResource AccentButtonStyle}"
+                        Click="AddDelistedAsset_Click" VerticalAlignment="Bottom" Margin="0,0,0,1" />
+            </StackPanel>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>

@@ -121,10 +121,9 @@ public sealed partial class FxRatesPage : Page
         }
 
         // Use the selected date, defaulting to today if nothing chosen
-        var selectedDate = ManualDatePicker.SelectedDate.HasValue
-            ? new DateTimeOffset(ManualDatePicker.SelectedDate.Value.DateTime, TimeSpan.Zero)
-            : DateTimeOffset.UtcNow.Date == default ? DateTimeOffset.UtcNow
-              : new DateTimeOffset(DateTimeOffset.UtcNow.Date, TimeSpan.Zero);
+        var selectedDate = ManualDatePicker.Date.HasValue
+            ? new DateTimeOffset(ManualDatePicker.Date.Value.DateTime, TimeSpan.Zero)
+            : new DateTimeOffset(DateTimeOffset.UtcNow.Date, TimeSpan.Zero);
 
         _fxService.SetManualOverride(asset, selectedDate, rate);
         ManualAssetBox.Text = "";

@@ -81,27 +81,26 @@
                     BorderThickness="1">
                 <StackPanel Spacing="12">
 
-                    <!-- Add override entry row -->
-                    <Grid ColumnSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="160" />
-                            <ColumnDefinition Width="180" />
-                            <ColumnDefinition Width="180" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBox x:Name="ManualAssetBox" Grid.Column="0"
-                                 Header="Asset (e.g. BTC)"
-                                 PlaceholderText="Asset name" />
-                        <DatePicker x:Name="ManualDatePicker" Grid.Column="1"
-                                    Header="Date" />
-                        <TextBox x:Name="ManualRateBox" Grid.Column="2"
-                                 Header="GBP Rate per unit"
-                                 PlaceholderText="e.g. 0.00042" />
-                        <Button x:Name="AddOverrideBtn" Grid.Column="3"
-                                Content="Add Rate"
-                                VerticalAlignment="Bottom"
-                                Click="AddOverride_Click" />
-                    </Grid>
+                    <!-- Add override entry -->
+                    <StackPanel Spacing="8">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <TextBox x:Name="ManualAssetBox"
+                                     Header="Asset (e.g. BTC)"
+                                     PlaceholderText="Asset name" Width="160" />
+                            <TextBox x:Name="ManualRateBox"
+                                     Header="GBP Rate per unit"
+                                     PlaceholderText="e.g. 0.00042" Width="180" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <CalendarDatePicker x:Name="ManualDatePicker"
+                                                Header="Date" PlaceholderText="Pick a date"
+                                                Width="220" />
+                            <Button x:Name="AddOverrideBtn"
+                                    Content="Add Rate"
+                                    VerticalAlignment="Bottom"
+                                    Click="AddOverride_Click" />
+                        </StackPanel>
+                    </StackPanel>
 
                     <InfoBar x:Name="OverrideInfoBar" IsOpen="False" IsClosable="True" />
 

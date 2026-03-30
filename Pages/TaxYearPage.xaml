@@ -7,7 +7,14 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <ScrollViewer Padding="0,0,20,0">
+    <Grid>
+        <!-- Loading overlay -->
+        <StackPanel x:Name="LoadingPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+            <ProgressRing IsActive="True" Width="48" Height="48" />
+            <TextBlock Text="Loading tax year data..." HorizontalAlignment="Center" Opacity="0.7" />
+        </StackPanel>
+
+    <ScrollViewer x:Name="ContentScroller" Padding="0,0,20,0" Visibility="Collapsed">
         <StackPanel Spacing="16" MaxWidth="1000" HorizontalAlignment="Left">
 
             <Grid>
@@ -511,4 +518,5 @@
 
         </StackPanel>
     </ScrollViewer>
+    </Grid>
 </Page>
