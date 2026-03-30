@@ -46,19 +46,27 @@ public sealed partial class TaxYearPage : Page
             var allNotes = mw.Settings.DisposalNotes ?? new();
 
             // Build expensive ViewModels on a background thread so the spinner actually animates
+            List<WarningViewModel>? warningVms = null;
+            List<StakingAssetSummaryViewModel>? stakingAssetVms = null;
+            List<StakingViewModel>? stakingVms = null;
+            List<AssetPnlViewModel>? assetPnlVms = null;
+
             await Task.Run(() =>
             {
                 var sw = Stopwatch.StartNew();
 
-                // Pre-sort ledger entries once per refid. The previous implementation
-                // was re-sorting and re-materializing per disposal (very expensive for large years).
-                var sortedLedger = ledger
-                    .OrderBy(entry => entry.Time)
-                    .ToList();
-
-                var ledgerByRefId = sortedLedger
-                    .GroupBy(entry => entry.RefId)
-                    .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+                // Build refId lookup — no need to sort the full ledger, just group it
+                var ledgerByRefId = new Dictionary<string, List<KrakenLedgerEntry>>(StringComparer.OrdinalIgnoreCase);
+                foreach (var entry in ledger)
+                {
+                    if (string.IsNullOrEmpty(entry.RefId)) continue;
+                    if (!ledgerByRefId.TryGetValue(entry.RefId, out var list))
+                    {
+                        list = new List<KrakenLedgerEntry>(4);
+                        ledgerByRefId[entry.RefId] = list;
+                    }
+                    list.Add(entry);
+                }
 
                 List<BnbLedgerEntryViewModel> GetEntries(string refId)
                 {
@@ -78,27 +86,72 @@ public sealed partial class TaxYearPage : Page
                     .OrderBy(d => d.Date)
                     .ToList();
 
+                // Single pass: build both BnB and all-disposal lists
                 _allBnbDisposals = new List<BnbDisposalViewModel>(Math.Min(orderedDisposals.Count, 128));
-                foreach (var d in orderedDisposals)
-                {
-                    if (!(d.MatchingRule.Contains("Bed", StringComparison.OrdinalIgnoreCase) ||
-                          d.MatchingRule.Contains("B&B", StringComparison.OrdinalIgnoreCase) ||
-                          d.MatchingRule.Contains("Breakfast", StringComparison.OrdinalIgnoreCase)))
-                        continue;
-
-                    var de = GetEntries(d.TradeId);
-                    var ae = GetEntries(d.AcquisitionRefId ?? "");
-                    _allBnbDisposals.Add(new BnbDisposalViewModel(d, de, ae));
-                }
-
                 _allDisposals = new List<DisposalViewModel>(orderedDisposals.Count);
                 foreach (var d in orderedDisposals)
                 {
+                    if (d.MatchingRule.Contains("Bed", StringComparison.OrdinalIgnoreCase) ||
+                        d.MatchingRule.Contains("B&B", StringComparison.OrdinalIgnoreCase) ||
+                        d.MatchingRule.Contains("Breakfast", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var de = GetEntries(d.TradeId);
+                        var ae = GetEntries(d.AcquisitionRefId ?? "");
+                        _allBnbDisposals.Add(new BnbDisposalViewModel(d, de, ae));
+                    }
+
                     _allDisposals.Add(new DisposalViewModel(d,
                         costOverrides.ContainsKey(d.TradeId),
                         allNotes.ContainsKey(d.TradeId),
                         GetEntries));
                 }
+
+                // Pre-build warning VMs on background thread
+                if (summary.Warnings.Count > 0)
+                {
+                    warningVms = summary.Warnings
+                        .OrderByDescending(w => w.Level)
+                        .ThenBy(w => w.Date)
+                        .Select(w => new WarningViewModel(w))
+                        .ToList();
+                }
+
+                // Pre-build staking VMs on background thread
+                if (summary.StakingRewards.Count > 0)
+                {
+                    stakingAssetVms = summary.StakingRewards
+                        .GroupBy(s => s.Asset, StringComparer.OrdinalIgnoreCase)
+                        .Select(g => new StakingAssetSummaryViewModel
+                        {
+                            Asset = g.Key,
+                            Count = g.Count().ToString(),
+                            TotalAmount = g.Sum(s => s.Amount),
+                            TotalGbp = g.Sum(s => s.GbpValue)
+                        })
+                        .OrderByDescending(a => a.TotalGbp)
+                        .ToList();
+
+                    stakingVms = summary.StakingRewards
+                        .OrderBy(s => s.Date)
+                        .Select(s => new StakingViewModel(s))
+                        .ToList();
+                }
+
+                // Pre-build asset P&L on background thread
+                var totalAbsGain = summary.Disposals.Sum(d => Math.Abs(d.GainOrLoss));
+                assetPnlVms = summary.Disposals
+                    .GroupBy(d => d.Asset, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => new AssetPnlViewModel
+                    {
+                        Asset = g.Key,
+                        Count = g.Count().ToString(),
+                        Proceeds = g.Sum(d => d.DisposalProceeds),
+                        Cost = g.Sum(d => d.AllowableCost),
+                        Gain = g.Sum(d => d.GainOrLoss),
+                        TotalAbsGain = totalAbsGain
+                    })
+                    .OrderByDescending(a => Math.Abs(a.Gain))
+                    .ToList();
 
                 sw.Stop();
                 try
@@ -114,15 +167,19 @@ public sealed partial class TaxYearPage : Page
                 }
             });
 
-            // UI binding runs back on the UI thread
-            LoadData();
+            // UI binding runs back on the UI thread — pass pre-built VMs to avoid work on UI thread
+            LoadData(warningVms, stakingAssetVms, stakingVms, assetPnlVms);
             _isLoading = false;
             LoadingPanel.Visibility = Visibility.Collapsed;
             ContentScroller.Visibility = Visibility.Visible;
         }
     }
 
-    private void LoadData()
+    private void LoadData(
+        List<WarningViewModel>? warningVms = null,
+        List<StakingAssetSummaryViewModel>? stakingAssetVms = null,
+        List<StakingViewModel>? stakingVms = null,
+        List<AssetPnlViewModel>? assetPnlVms = null)
     {
         if (_summary == null) return;
 
@@ -139,10 +196,10 @@ public sealed partial class TaxYearPage : Page
         LoadSA108();
         LoadBnbReport();
         LoadBalances();
-        LoadAssetPnl();
+        LoadAssetPnl(assetPnlVms);
         LoadDisposals();
-        LoadWarnings();
-        LoadStaking();
+        LoadWarnings(warningVms);
+        LoadStaking(stakingAssetVms, stakingVms);
         SetupWhatIf();
     }
 
@@ -340,9 +397,15 @@ public sealed partial class TaxYearPage : Page
         }
     }
 
-    private void LoadAssetPnl()
+    private void LoadAssetPnl(List<AssetPnlViewModel>? preBuilt = null)
     {
         if (_summary == null) return;
+
+        if (preBuilt != null)
+        {
+            AssetPnlList.ItemsSource = preBuilt;
+            return;
+        }
 
         var totalAbsGain = _summary.Disposals.Sum(d => Math.Abs(d.GainOrLoss));
         var assetPnl = _summary.Disposals
@@ -587,7 +650,7 @@ public sealed partial class TaxYearPage : Page
         }
     }
 
-    private void LoadWarnings()
+    private void LoadWarnings(List<WarningViewModel>? preBuilt = null)
     {
         if (_summary == null || _summary.Warnings.Count == 0)
         {
@@ -600,7 +663,7 @@ public sealed partial class TaxYearPage : Page
         var warnCount = _summary.Warnings.Count(w => w.Level == WarningLevel.Warning);
         WarningsTitle.Text = $"Data Issues ({errorCount} errors, {warnCount} warnings, {_summary.Warnings.Count - errorCount - warnCount} info)";
 
-        WarningsList.ItemsSource = _summary.Warnings
+        WarningsList.ItemsSource = preBuilt ?? _summary.Warnings
             .OrderByDescending(w => w.Level)
             .ThenBy(w => w.Date)
             .Select(w => new WarningViewModel(w))
@@ -628,7 +691,7 @@ public sealed partial class TaxYearPage : Page
         Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
     }
 
-    private void LoadStaking()
+    private void LoadStaking(List<StakingAssetSummaryViewModel>? preBuiltAssets = null, List<StakingViewModel>? preBuiltRewards = null)
     {
         if (_summary == null || _summary.StakingRewards.Count == 0)
         {
@@ -639,8 +702,7 @@ public sealed partial class TaxYearPage : Page
         StakingPanel.Visibility = Visibility.Visible;
         StakingTotalText.Text = $"Total staking/dividend income: {FormatGbp(_summary.StakingIncome)}";
 
-        // Per-asset summary
-        StakingByAssetList.ItemsSource = _summary.StakingRewards
+        StakingByAssetList.ItemsSource = preBuiltAssets ?? _summary.StakingRewards
             .GroupBy(s => s.Asset, StringComparer.OrdinalIgnoreCase)
             .Select(g => new StakingAssetSummaryViewModel
             {
@@ -652,7 +714,7 @@ public sealed partial class TaxYearPage : Page
             .OrderByDescending(a => a.TotalGbp)
             .ToList();
 
-        StakingList.ItemsSource = _summary.StakingRewards
+        StakingList.ItemsSource = preBuiltRewards ?? _summary.StakingRewards
             .OrderBy(s => s.Date)
             .Select(s => new StakingViewModel(s))
             .ToList();

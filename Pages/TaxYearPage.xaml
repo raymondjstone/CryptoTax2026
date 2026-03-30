@@ -440,7 +440,7 @@
                     <StackPanel x:Name="WarningsContent" Spacing="8">
                         <TextBlock Text="These issues were found during calculation. They may affect the accuracy of the results."
                                    TextWrapping="Wrap" Opacity="0.7" />
-                        <ListView x:Name="WarningsList" SelectionMode="None" IsItemClickEnabled="False">
+                        <ListView x:Name="WarningsList" SelectionMode="None" IsItemClickEnabled="False" MaxHeight="400">
                             <ListView.ItemTemplate>
                                 <DataTemplate>
                                     <Grid Padding="4,2" ColumnSpacing="12">
@@ -672,8 +672,14 @@
                             <TextBlock Grid.Column="4" Text="Cost" FontWeight="SemiBold" />
                             <TextBlock Grid.Column="5" Text="Gain/Loss" FontWeight="SemiBold" />
                         </Grid>
-                        <ItemsControl x:Name="BnbList">
-                            <ItemsControl.ItemTemplate>
+                        <ListView x:Name="BnbList" SelectionMode="None" IsItemClickEnabled="False" MaxHeight="500">
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    <Setter Property="Padding" Value="0" />
+                                </Style>
+                            </ListView.ItemContainerStyle>
+                            <ListView.ItemTemplate>
                                 <DataTemplate>
                                     <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
                                         <Expander.Header>
@@ -788,8 +794,8 @@
                                         </Border>
                                     </Expander>
                                 </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                            </ListView.ItemTemplate>
+                        </ListView>
                     </StackPanel>
                 </StackPanel>
             </Border>
