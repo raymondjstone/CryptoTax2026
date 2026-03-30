@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="CryptoTax2026.Pages.CsvImportPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    NavigationCacheMode="Required">
+
+    <ScrollViewer Padding="0,0,20,0">
+        <StackPanel Spacing="16" MaxWidth="900" HorizontalAlignment="Left">
+
+            <TextBlock Text="CSV Import" Style="{StaticResource TitleTextBlockStyle}" />
+            <InfoBar x:Name="InfoMessage" IsOpen="False" />
+            <TextBlock Text="Import trades from other exchanges (Coinbase, Binance, etc.) by mapping CSV columns to the required fields."
+                       TextWrapping="Wrap" Opacity="0.7" />
+
+            <!-- Profile selector -->
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <ComboBox x:Name="ProfileBox" Header="Import Profile" Width="200"
+                          PlaceholderText="New profile" SelectionChanged="Profile_Changed">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate><TextBlock Text="{Binding}" /></DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <TextBox x:Name="ProfileNameBox" Header="Profile Name" PlaceholderText="e.g. Coinbase" Width="180" />
+            </StackPanel>
+
+            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,4" />
+
+            <!-- Column mapping -->
+            <TextBlock Text="Column Mapping" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <TextBlock Text="Enter the exact CSV column headers that correspond to each field. Leave blank for fields not present."
+                       Opacity="0.7" TextWrapping="Wrap" />
+
+            <Grid ColumnSpacing="12" RowSpacing="8" MaxWidth="700">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="160" />
+                    <ColumnDefinition Width="180" />
+                    <ColumnDefinition Width="160" />
+                    <ColumnDefinition Width="180" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition /><RowDefinition /><RowDefinition />
+                    <RowDefinition /><RowDefinition />
+                </Grid.RowDefinitions>
+
+                <TextBox x:Name="MapDate" Grid.Row="0" Grid.Column="0" Header="Date Column" PlaceholderText="e.g. Timestamp" />
+                <TextBox x:Name="MapDateFormat" Grid.Row="0" Grid.Column="1" Header="Date Format" PlaceholderText="yyyy-MM-dd HH:mm:ss" />
+                <TextBox x:Name="MapType" Grid.Row="0" Grid.Column="2" Header="Type Column" PlaceholderText="e.g. Type" />
+                <TextBox x:Name="MapAsset" Grid.Row="0" Grid.Column="3" Header="Asset Column" PlaceholderText="e.g. Asset" />
+
+                <TextBox x:Name="MapAmount" Grid.Row="1" Grid.Column="0" Header="Amount Column" PlaceholderText="e.g. Quantity" />
+                <TextBox x:Name="MapFee" Grid.Row="1" Grid.Column="1" Header="Fee Column" PlaceholderText="e.g. Fee" />
+                <TextBox x:Name="MapFeeAsset" Grid.Row="1" Grid.Column="2" Header="Fee Asset Column" PlaceholderText="e.g. Fee Asset" />
+                <TextBox x:Name="MapPrice" Grid.Row="1" Grid.Column="3" Header="Price Column" PlaceholderText="e.g. Price" />
+
+                <TextBox x:Name="MapQuoteCurrency" Grid.Row="2" Grid.Column="0" Header="Quote Currency Col" PlaceholderText="e.g. Currency" />
+                <CheckBox x:Name="HasHeaderCheck" Grid.Row="2" Grid.Column="1" Content="File has header row" IsChecked="True"
+                          VerticalAlignment="Bottom" />
+            </Grid>
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Save Profile" Click="SaveProfile_Click" Style="{StaticResource AccentButtonStyle}" />
+                <Button x:Name="DeleteProfileBtn" Content="Delete Profile" Click="DeleteProfile_Click" />
+            </StackPanel>
+
+            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,4" />
+
+            <!-- Import -->
+            <TextBlock Text="Import File" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button Content="Select CSV File &amp; Import" Click="ImportCsv_Click"
+                        Style="{StaticResource AccentButtonStyle}" />
+            </StackPanel>
+
+            <!-- Preview / imported entries -->
+            <TextBlock x:Name="ImportedCountText" Text="" FontWeight="SemiBold" />
+
+            <ListView x:Name="ImportedEntriesList" SelectionMode="None" IsItemClickEnabled="False" MaxHeight="400">
+                <ListView.HeaderTemplate>
+                    <DataTemplate>
+                        <Grid Padding="8,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140" />
+                                <ColumnDefinition Width="80" />
+                                <ColumnDefinition Width="80" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="80" />
+                                <ColumnDefinition Width="120" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Date" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="1" Text="Asset" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="2" Text="Type" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="3" Text="Amount" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="4" Text="Fee" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="5" Text="Source" FontWeight="SemiBold" />
+                        </Grid>
+                    </DataTemplate>
+                </ListView.HeaderTemplate>
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Padding="8,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140" />
+                                <ColumnDefinition Width="80" />
+                                <ColumnDefinition Width="80" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="80" />
+                                <ColumnDefinition Width="120" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{Binding DateFormatted}" />
+                            <TextBlock Grid.Column="1" Text="{Binding Asset}" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="2" Text="{Binding Type}" />
+                            <TextBlock Grid.Column="3" Text="{Binding AmountFormatted}" />
+                            <TextBlock Grid.Column="4" Text="{Binding FeeFormatted}" />
+                            <TextBlock Grid.Column="5" Text="{Binding Source}" Opacity="0.6" />
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+
+            <Button x:Name="ClearImportsBtn" Content="Clear All Imported Entries" Click="ClearImports_Click"
+                    Visibility="Collapsed" />
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>

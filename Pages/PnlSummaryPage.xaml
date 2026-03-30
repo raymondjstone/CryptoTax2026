@@ -41,6 +41,16 @@
             </Grid>
             <InfoBar x:Name="ExportInfoBar" IsOpen="False" />
 
+            <!-- Year-over-year comparison table -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Year-over-Year Comparison" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <Grid x:Name="ComparisonGrid" ColumnSpacing="16" RowSpacing="4" />
+                </StackPanel>
+            </Border>
+
             <!-- P&L sections will be added dynamically -->
             <StackPanel x:Name="PnlContainer" Spacing="16" />
 

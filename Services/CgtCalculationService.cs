@@ -11,13 +11,15 @@ public class CgtCalculationService
     private readonly List<CalculationWarning> _warnings;
     private readonly List<KrakenTrade> _trades;
     private readonly List<DelistedAssetEvent> _delistedAssets;
+    private readonly Dictionary<string, decimal> _costBasisOverrides;
 
-    public CgtCalculationService(FxConversionService fxService, List<CalculationWarning> warnings, List<KrakenTrade>? trades = null, List<DelistedAssetEvent>? delistedAssets = null)
+    public CgtCalculationService(FxConversionService fxService, List<CalculationWarning> warnings, List<KrakenTrade>? trades = null, List<DelistedAssetEvent>? delistedAssets = null, Dictionary<string, decimal>? costBasisOverrides = null)
     {
         _fxService = fxService;
         _warnings = warnings;
         _trades = trades ?? new();
         _delistedAssets = delistedAssets ?? new();
+        _costBasisOverrides = costBasisOverrides ?? new();
     }
 
     /// <summary>
@@ -80,6 +82,15 @@ public class CgtCalculationService
 
         // Calculate disposals using HMRC rules
         var disposals = CalculateDisposals(events);
+
+        // Apply cost basis overrides
+        foreach (var d in disposals)
+        {
+            if (_costBasisOverrides.TryGetValue(d.TradeId, out var overrideCost))
+            {
+                d.AllowableCost = overrideCost;
+            }
+        }
 
         // Compute balance snapshots at tax year boundaries (uses filtered ledger so delisted
         // assets don't show phantom balances after delisting)
@@ -689,6 +700,7 @@ public class CgtCalculationService
                         AllowableCost = costProportion,
                         MatchingRule = "Bed & Breakfast",
                         TradeId = disposal.RefId,
+                        AcquisitionRefId = acq.Event.RefId,
                         TaxYear = GetTaxYearLabel(disposal.Date)
                     });
 
@@ -989,6 +1001,7 @@ public class CgtCalculationService
                 allTaxYears.Add(key);
 
         var summaries = new List<TaxYearSummary>();
+        decimal carriedLosses = 0; // Running total of unused losses from prior years
 
         foreach (var taxYearLabel in allTaxYears.OrderBy(y => y))
         {
@@ -1023,12 +1036,31 @@ public class CgtCalculationService
                 });
             }
 
-            // CGT calculation
+            // Loss carry-forward logic
+            var lossesCarriedIn = carriedLosses;
+            decimal lossesUsed = 0;
+
             var otherGains = userInput.OtherCapitalGains;
             var totalNetGain = netGain + otherGains;
+
+            // Current-year losses are already netted in totalNetGain.
+            // Carried-in losses are only used to reduce net gains to AEA level (HMRC rule:
+            // brought-forward losses reduce gains to the AEA but not below it).
+            if (totalNetGain > rates.AnnualExemptAmount && lossesCarriedIn > 0)
+            {
+                var excessAboveAea = totalNetGain - rates.AnnualExemptAmount;
+                lossesUsed = Math.Min(lossesCarriedIn, excessAboveAea);
+                totalNetGain -= lossesUsed;
+            }
+
             var taxableGain = Math.Max(0, totalNetGain - rates.AnnualExemptAmount);
             var taxableIncome = userInput.TaxableIncome;
             var cgtDue = CalculateCgt(taxableGain, taxableIncome, rates);
+
+            // Update carried losses: subtract used, add any new current-year net loss
+            carriedLosses -= lossesUsed;
+            if (netGain + otherGains < 0)
+                carriedLosses += Math.Abs(netGain + otherGains); // new losses added to pool
 
             // Warnings for this tax year
             var yearWarnings = _warnings
@@ -1066,6 +1098,9 @@ public class CgtCalculationService
                 PersonalAllowance = rates.PersonalAllowance,
                 StakingIncome = stakingIncome,
                 StakingRewards = stakingDetails,
+                LossesCarriedIn = lossesCarriedIn,
+                LossesUsedThisYear = lossesUsed,
+                LossesCarriedOut = carriedLosses,
                 StartOfYearBalances = startBalances,
                 EndOfYearBalances = endBalances,
                 Warnings = yearWarnings

@@ -15,7 +15,7 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="Kraken Ledger" Style="{StaticResource TitleTextBlockStyle}" Margin="0,0,0,4" />
+        <TextBlock Grid.Row="0" Text="All Ledger Entries" Style="{StaticResource TitleTextBlockStyle}" Margin="0,0,0,4" />
 
         <!-- Filters -->
         <Border Grid.Row="1" Background="{ThemeResource SubtleFillColorSecondaryBrush}"
@@ -33,6 +33,12 @@
                         <DataTemplate><TextBlock Text="{Binding}" /></DataTemplate>
                     </ComboBox.ItemTemplate>
                 </ComboBox>
+                <ComboBox x:Name="SourceFilter" Header="Source" Width="130"
+                          PlaceholderText="All" SelectionChanged="Filter_Changed">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate><TextBlock Text="{Binding}" /></DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
                 <TextBox x:Name="RefIdFilter" Header="Ref ID" PlaceholderText="Search..." Width="160"
                          TextChanged="RefIdFilter_TextChanged" />
                 <Button Content="Clear Filters" VerticalAlignment="Bottom"
@@ -43,12 +49,14 @@
         </Border>
 
         <!-- Ledger list -->
-        <ListView Grid.Row="2" x:Name="LedgerList" SelectionMode="None" IsItemClickEnabled="False">
+        <ListView Grid.Row="2" x:Name="LedgerList" SelectionMode="None" IsItemClickEnabled="True"
+                  ItemClick="LedgerList_ItemClick">
             <ListView.HeaderTemplate>
                 <DataTemplate>
                     <Grid Padding="8,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="80" />
                             <ColumnDefinition Width="80" />
                             <ColumnDefinition Width="100" />
                             <ColumnDefinition Width="120" />
@@ -58,13 +66,14 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Column="0" Text="Date" FontWeight="SemiBold" />
-                        <TextBlock Grid.Column="1" Text="Asset" FontWeight="SemiBold" />
-                        <TextBlock Grid.Column="2" Text="Type" FontWeight="SemiBold" />
-                        <TextBlock Grid.Column="3" Text="SubType" FontWeight="SemiBold" />
-                        <TextBlock Grid.Column="4" Text="Amount" FontWeight="SemiBold" />
-                        <TextBlock Grid.Column="5" Text="Fee" FontWeight="SemiBold" />
-                        <TextBlock Grid.Column="6" Text="Balance" FontWeight="SemiBold" />
-                        <TextBlock Grid.Column="7" Text="Ref ID" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="1" Text="Source" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="2" Text="Asset" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="3" Text="Type" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="4" Text="SubType" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="5" Text="Amount" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="6" Text="Fee" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="7" Text="Balance" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="8" Text="Ref ID" FontWeight="SemiBold" />
                     </Grid>
                 </DataTemplate>
             </ListView.HeaderTemplate>
@@ -74,6 +83,7 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="140" />
                             <ColumnDefinition Width="80" />
+                            <ColumnDefinition Width="80" />
                             <ColumnDefinition Width="100" />
                             <ColumnDefinition Width="120" />
                             <ColumnDefinition Width="140" />
@@ -82,17 +92,20 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Column="0" Text="{Binding DateFormatted}" />
-                        <TextBlock Grid.Column="1" Text="{Binding Asset}" FontWeight="SemiBold" />
-                        <TextBlock Grid.Column="2" Text="{Binding Type}" />
-                        <TextBlock Grid.Column="3" Text="{Binding SubType}" Opacity="0.7" />
-                        <TextBlock Grid.Column="4" Text="{Binding AmountFormatted}" Foreground="{Binding AmountColor}" />
-                        <TextBlock Grid.Column="5" Text="{Binding FeeFormatted}" Opacity="0.7" />
-                        <TextBlock Grid.Column="6" Text="{Binding BalanceFormatted}" Opacity="0.7" />
-                        <TextBlock Grid.Column="7" Text="{Binding RefId}" Opacity="0.5" FontSize="11"
+                        <TextBlock Grid.Column="1" Text="{Binding Source}" Opacity="0.7" />
+                        <TextBlock Grid.Column="2" Text="{Binding Asset}" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="3" Text="{Binding Type}" />
+                        <TextBlock Grid.Column="4" Text="{Binding SubType}" Opacity="0.7" />
+                        <TextBlock Grid.Column="5" Text="{Binding AmountFormatted}" Foreground="{Binding AmountColor}" />
+                        <TextBlock Grid.Column="6" Text="{Binding FeeFormatted}" Opacity="0.7" />
+                        <TextBlock Grid.Column="7" Text="{Binding BalanceFormatted}" Opacity="0.7" />
+                        <TextBlock Grid.Column="8" Text="{Binding RefId}" Opacity="0.5" FontSize="11"
                                    TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" />
                     </Grid>
                 </DataTemplate>
             </ListView.ItemTemplate>
         </ListView>
+        <TextBlock Grid.Row="2" Text="Click an entry to split it into multiple transactions."
+                   Opacity="0.5" FontSize="12" VerticalAlignment="Bottom" Margin="0,0,0,4" />
     </Grid>
 </Page>

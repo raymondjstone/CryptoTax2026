@@ -44,6 +44,26 @@ public sealed partial class FxRatesPage : Page
         RatesListView.ItemsSource = viewModels;
 
         LoadManualOverrides();
+
+        // Populate rate explorer pair filter
+        RateExplorerPairFilter.ItemsSource = _fxService.GetPairNames();
+    }
+
+    private void RateExplorerPair_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_fxService == null) return;
+        var pair = RateExplorerPairFilter.SelectedItem as string;
+        if (string.IsNullOrEmpty(pair))
+        {
+            RateExplorerList.ItemsSource = null;
+            RateExplorerStatus.Text = "";
+            return;
+        }
+
+        var points = _fxService.GetRateDataPoints(pair);
+        var vms = points.Select(p => new RateDataPointRow(p.Date, p.Rate)).ToList();
+        RateExplorerList.ItemsSource = vms;
+        RateExplorerStatus.Text = $"{vms.Count:#,##0} data points";
     }
 
     private void LoadManualOverrides()
@@ -149,6 +169,17 @@ public sealed partial class FxRatesPage : Page
 
         LoadManualOverrides();
     }
+}
+
+internal class RateDataPointRow
+{
+    public RateDataPointRow(DateTimeOffset date, decimal rate)
+    {
+        DateFormatted = date.ToString("dd/MM/yyyy HH:mm");
+        RateFormatted = rate.ToString("0.##########");
+    }
+    public string DateFormatted { get; }
+    public string RateFormatted { get; }
 }
 
 internal class FxRateRow

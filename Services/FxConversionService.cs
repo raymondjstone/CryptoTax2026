@@ -957,6 +957,29 @@ public class FxConversionService
     public string CacheFolderPath => CacheFolder;
 
     /// <summary>
+    /// Returns all individual rate data points for a given pair, ordered by date.
+    /// Returns empty list if pair not found.
+    /// </summary>
+    public List<(DateTimeOffset Date, decimal Rate)> GetRateDataPoints(string pairName)
+    {
+        if (!_rateCache.TryGetValue(pairName, out var rates))
+            return new();
+
+        return rates.Select(kv => (
+            Date: DateTimeOffset.FromUnixTimeSeconds(kv.Key),
+            Rate: kv.Value
+        )).ToList();
+    }
+
+    /// <summary>
+    /// Returns all pair names in the cache.
+    /// </summary>
+    public List<string> GetPairNames()
+    {
+        return _rateCache.Keys.Where(k => _rateCache[k].Count > 0).OrderBy(k => k).ToList();
+    }
+
+    /// <summary>
     /// Adds a manual GBP rate for an asset at a specific date. Persisted immediately.
     /// Multiple entries per asset are stored and interpolated using FindClosestRate.
     /// </summary>

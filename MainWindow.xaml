@@ -48,6 +48,11 @@
                         <SymbolIcon Symbol="Delete" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="CSV Import" Tag="CsvImport">
+                    <NavigationViewItem.Icon>
+                        <SymbolIcon Symbol="Import" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
             </NavigationView.MenuItems>
 
             <Frame x:Name="ContentFrame" Padding="20" />

@@ -71,6 +71,51 @@
                 </StackPanel>
             </Border>
 
+            <!-- Rate Data Explorer -->
+            <TextBlock Text="Rate Data Explorer" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,8,0,0" />
+            <TextBlock Text="Browse individual rate data points for any pair." Opacity="0.7" TextWrapping="Wrap" />
+
+            <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                    CornerRadius="6" Padding="12">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <ComboBox x:Name="RateExplorerPairFilter" Header="Pair" Width="200"
+                              PlaceholderText="Select pair" SelectionChanged="RateExplorerPair_Changed">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate><TextBlock Text="{Binding}" /></DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <TextBlock x:Name="RateExplorerStatus" VerticalAlignment="Bottom" Opacity="0.7"
+                               Padding="0,0,0,6" />
+                </StackPanel>
+            </Border>
+
+            <ListView x:Name="RateExplorerList" SelectionMode="None" IsItemClickEnabled="False" MaxHeight="400">
+                <ListView.HeaderTemplate>
+                    <DataTemplate>
+                        <Grid Padding="8,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="180" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Date" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="1" Text="Rate" FontWeight="SemiBold" />
+                        </Grid>
+                    </DataTemplate>
+                </ListView.HeaderTemplate>
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Padding="8,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="180" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{Binding DateFormatted}" />
+                            <TextBlock Grid.Column="1" Text="{Binding RateFormatted}" />
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+
             <!-- Manual Rate Overrides -->
             <TextBlock Text="Manual Rate Overrides" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,8,0,0" />
             <TextBlock Text="Add dated GBP rates for assets where no data could be downloaded. Multiple entries per asset are interpolated like real market rates." Opacity="0.7" TextWrapping="Wrap" />
@@ -82,24 +127,20 @@
                 <StackPanel Spacing="12">
 
                     <!-- Add override entry -->
-                    <StackPanel Spacing="8">
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <TextBox x:Name="ManualAssetBox"
-                                     Header="Asset (e.g. BTC)"
-                                     PlaceholderText="Asset name" Width="160" />
-                            <TextBox x:Name="ManualRateBox"
-                                     Header="GBP Rate per unit"
-                                     PlaceholderText="e.g. 0.00042" Width="180" />
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <CalendarDatePicker x:Name="ManualDatePicker"
-                                                Header="Date" PlaceholderText="Pick a date"
-                                                Width="220" />
-                            <Button x:Name="AddOverrideBtn"
-                                    Content="Add Rate"
-                                    VerticalAlignment="Bottom"
-                                    Click="AddOverride_Click" />
-                        </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <TextBox x:Name="ManualAssetBox"
+                                 Header="Asset (e.g. BTC)"
+                                 PlaceholderText="Asset name" Width="160" />
+                        <CalendarDatePicker x:Name="ManualDatePicker"
+                                            Header="Date" PlaceholderText="Pick a date"
+                                            Width="220" />
+                        <TextBox x:Name="ManualRateBox"
+                                 Header="GBP Rate per unit"
+                                 PlaceholderText="e.g. 0.00042" Width="180" />
+                        <Button x:Name="AddOverrideBtn"
+                                Content="Add Rate"
+                                VerticalAlignment="Bottom"
+                                Click="AddOverride_Click" />
                     </StackPanel>
 
                     <InfoBar x:Name="OverrideInfoBar" IsOpen="False" IsClosable="True" />

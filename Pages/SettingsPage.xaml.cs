@@ -28,6 +28,9 @@ public sealed partial class SettingsPage : Page
             LoadSettings();
             UpdateLedgerStatus();
             UpdateFxStatus();
+            UpdateFreshnessIndicator();
+            LoadAuditLog();
+            LoadThemeSelector();
         }
     }
 
@@ -109,6 +112,55 @@ public sealed partial class SettingsPage : Page
             var onDisk = stats.Count(s => s.OnDisk);
             FxStatusText.Text = $"{stats.Count} FX pairs loaded ({totalPoints:#,##0} data points, {onDisk} cached to disk).";
         }
+    }
+
+    private void UpdateFreshnessIndicator()
+    {
+        if (_mainWindow == null) return;
+
+        var settings = _mainWindow.Settings;
+        var now = DateTimeOffset.UtcNow;
+
+        if (settings.LastLedgerDownload.HasValue)
+        {
+            var age = now - settings.LastLedgerDownload.Value;
+            LedgerFreshnessText.Text = $"Ledger last downloaded: {settings.LastLedgerDownload.Value.LocalDateTime:dd/MM/yyyy HH:mm} ({FormatAge(age)} ago)";
+        }
+        else
+        {
+            LedgerFreshnessText.Text = "Ledger: never downloaded";
+        }
+
+        if (settings.LastFxDownload.HasValue)
+        {
+            var age = now - settings.LastFxDownload.Value;
+            FxFreshnessText.Text = $"FX rates last downloaded: {settings.LastFxDownload.Value.LocalDateTime:dd/MM/yyyy HH:mm} ({FormatAge(age)} ago)";
+        }
+        else
+        {
+            FxFreshnessText.Text = "FX rates: never downloaded";
+        }
+
+        // Show warning if data is stale (more than 7 days)
+        var ledgerStale = settings.LastLedgerDownload.HasValue && (now - settings.LastLedgerDownload.Value).TotalDays > 7;
+        var fxStale = settings.LastFxDownload.HasValue && (now - settings.LastFxDownload.Value).TotalDays > 7;
+
+        if (ledgerStale || fxStale)
+        {
+            FreshnessWarningText.Text = "Data may be stale. Consider re-downloading for up-to-date calculations.";
+            FreshnessWarningText.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            FreshnessWarningText.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private static string FormatAge(TimeSpan age)
+    {
+        if (age.TotalMinutes < 60) return $"{(int)age.TotalMinutes}m";
+        if (age.TotalHours < 24) return $"{(int)age.TotalHours}h";
+        return $"{(int)age.TotalDays}d";
     }
 
     private async void TestConnection_Click(object sender, RoutedEventArgs e)
@@ -279,6 +331,12 @@ public sealed partial class SettingsPage : Page
 
                 InfoMessage.Message = $"Ledger: {allEntries.Count} entries. FX rates: {pairCount} pairs, {pointCount:#,##0} data points. Tax calculations updated.";
 
+                _mainWindow.Settings.LastLedgerDownload = DateTimeOffset.UtcNow;
+                _mainWindow.Settings.LastFxDownload = DateTimeOffset.UtcNow;
+                _mainWindow.AddAuditEntry("Download", $"Ledger: {allEntries.Count} entries, FX: {pairCount} pairs ({pointCount:#,##0} points)");
+                await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
+                UpdateFreshnessIndicator();
+
                 FxProgress.Visibility = Visibility.Collapsed;
                 FxProgress.IsIndeterminate = false;
                 FxProgressText.Visibility = Visibility.Collapsed;
@@ -347,6 +405,11 @@ public sealed partial class SettingsPage : Page
             InfoMessage.Message = $"FX rates loaded: {pairCount} pairs, {pointCount:#,##0} data points. Tax calculations updated.";
             InfoMessage.Severity = InfoBarSeverity.Success;
             InfoMessage.IsOpen = true;
+
+            _mainWindow.Settings.LastFxDownload = DateTimeOffset.UtcNow;
+            _mainWindow.AddAuditEntry("FX Download", $"{pairCount} pairs, {pointCount:#,##0} data points");
+            await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
+            UpdateFreshnessIndicator();
         }
         catch (OperationCanceledException)
         {
@@ -376,4 +439,66 @@ public sealed partial class SettingsPage : Page
         FxDownloadBtn.IsEnabled = enabled;
     }
 
+    private void LoadThemeSelector()
+    {
+        if (_mainWindow == null) return;
+        var theme = _mainWindow.Settings.Theme;
+        for (int i = 0; i < ThemeSelector.Items.Count; i++)
+        {
+            if (ThemeSelector.Items[i] is ComboBoxItem item && item.Tag?.ToString() == theme)
+            {
+                ThemeSelector.SelectedIndex = i;
+                break;
+            }
+        }
+    }
+
+    private async void ThemeSelector_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_mainWindow == null) return;
+        if (ThemeSelector.SelectedItem is not ComboBoxItem item) return;
+
+        var theme = item.Tag?.ToString() ?? "Default";
+        _mainWindow.Settings.Theme = theme;
+        await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
+
+        // Apply theme to the root element
+        if (_mainWindow.Content is FrameworkElement root)
+        {
+            root.RequestedTheme = theme switch
+            {
+                "Light" => ElementTheme.Light,
+                "Dark" => ElementTheme.Dark,
+                _ => ElementTheme.Default
+            };
+        }
+    }
+
+    private void LoadAuditLog()
+    {
+        if (_mainWindow == null) return;
+
+        AuditLogList.ItemsSource = _mainWindow.Settings.AuditLog
+            .OrderByDescending(e => e.Timestamp)
+            .Select(e => new AuditLogViewModel(e))
+            .ToList();
+    }
+
+    private async void ClearAuditLog_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mainWindow == null) return;
+        _mainWindow.Settings.AuditLog.Clear();
+        await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
+        LoadAuditLog();
+    }
+}
+
+public class AuditLogViewModel
+{
+    private readonly AuditLogEntry _entry;
+    public AuditLogViewModel(AuditLogEntry entry) => _entry = entry;
+
+    public string TimestampFormatted => _entry.Timestamp.LocalDateTime.ToString("dd/MM/yyyy HH:mm");
+    public string Action => _entry.Action;
+    public string Detail => _entry.Detail;
 }

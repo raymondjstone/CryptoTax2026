@@ -23,6 +23,11 @@ public class TaxYearSummary
     public decimal TaxableGain { get; set; }
     public decimal CgtDue { get; set; }
 
+    // Loss carry-forward
+    public decimal LossesCarriedIn { get; set; }   // Unused losses from prior years
+    public decimal LossesUsedThisYear { get; set; } // Portion of carried-in losses applied
+    public decimal LossesCarriedOut { get; set; }   // Unused losses passed to next year
+
     // Tax rates used
     public decimal BasicRateCgt { get; set; }
     public decimal HigherRateCgt { get; set; }

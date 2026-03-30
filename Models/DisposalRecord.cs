@@ -12,5 +12,6 @@ public class DisposalRecord
     public decimal GainOrLoss => DisposalProceeds - AllowableCost;
     public string MatchingRule { get; set; } = ""; // "Same Day", "Bed & Breakfast", "Section 104"
     public string TradeId { get; set; } = "";
+    public string AcquisitionRefId { get; set; } = ""; // RefId of the matched acquisition (B&B rule only)
     public string TaxYear { get; set; } = ""; // e.g. "2023/24"
 }

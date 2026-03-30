@@ -61,27 +61,142 @@
             </Grid>
             <InfoBar x:Name="ExportInfoBar" IsOpen="False" />
 
+            <!-- What-If Scenario (only for open tax years) -->
+            <Border x:Name="WhatIfPanel" Visibility="Collapsed"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20" BorderBrush="{ThemeResource SystemFillColorAttentionBrush}"
+                    BorderThickness="1">
+                <StackPanel Spacing="8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="What If? — Hypothetical Trade Scenarios" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+                        <Button x:Name="WhatIfCollapseBtn" Grid.Column="1" Content="▲" Click="WhatIfCollapse_Click" Padding="8,4" />
+                    </Grid>
+                    <StackPanel x:Name="WhatIfContent" Spacing="12">
+                        <TextBlock Text="Add one or more hypothetical trades (buys or sells) to see how they would affect your tax liability for this year. This is a simulation only — nothing is saved."
+                                   TextWrapping="Wrap" Opacity="0.7" />
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <ComboBox x:Name="WhatIfSideBox" Header="Side" Width="80" SelectedIndex="0">
+                                <ComboBoxItem Content="Sell" />
+                                <ComboBoxItem Content="Buy" />
+                            </ComboBox>
+                            <TextBox x:Name="WhatIfAssetBox" Header="Asset" PlaceholderText="e.g. XRP" Width="100" />
+                            <ComboBox x:Name="WhatIfCurrencyBox" Header="Price Currency" Width="100" SelectedIndex="0">
+                                <ComboBoxItem Content="USD" />
+                                <ComboBoxItem Content="GBP" />
+                                <ComboBoxItem Content="EUR" />
+                            </ComboBox>
+                            <NumberBox x:Name="WhatIfPriceBox" Header="Price Per Unit" PlaceholderText="e.g. 1.40"
+                                       SpinButtonPlacementMode="Compact" Minimum="0" Width="150" />
+                            <NumberBox x:Name="WhatIfQuantityBox" Header="Quantity to Sell" PlaceholderText="e.g. 2000"
+                                       SpinButtonPlacementMode="Compact" Minimum="0" Width="150" />
+                            <CalendarDatePicker x:Name="WhatIfDatePicker" Header="Sale Date" Width="160" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="WhatIfAddBtn" Content="Add Trade" Click="WhatIfAdd_Click"
+                                    Style="{StaticResource AccentButtonStyle}" />
+                            <Button x:Name="WhatIfCalculateBtn" Content="Calculate" Click="WhatIfCalculate_Click" IsEnabled="False" />
+                            <Button x:Name="WhatIfClearBtn" Content="Clear All" Click="WhatIfClear_Click" />
+                        </StackPanel>
+                        <InfoBar x:Name="WhatIfInfoBar" IsOpen="False" />
+                        <Border x:Name="WhatIfTradesPanel" Visibility="Collapsed"
+                                Background="{ThemeResource SubtleFillColorTertiaryBrush}"
+                                CornerRadius="6" Padding="12">
+                            <StackPanel Spacing="4">
+                                <TextBlock x:Name="WhatIfTradesHeader" Text="Hypothetical Trades" FontWeight="SemiBold" />
+                                <ListView x:Name="WhatIfTradesList" SelectionMode="None" IsItemClickEnabled="False">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Padding="4,2" ColumnSpacing="8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="{Binding Description}" VerticalAlignment="Center" />
+                                                <Button Grid.Column="1" Content="&#xE711;" FontFamily="Segoe MDL2 Assets"
+                                                        Click="WhatIfRemoveTrade_Click" Tag="{Binding Index}"
+                                                        Padding="4,2" Background="Transparent" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </StackPanel>
+                        </Border>
+                        <Border x:Name="WhatIfResultsPanel" Visibility="Collapsed"
+                                Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                CornerRadius="6" Padding="16">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="What-If Results" FontWeight="Bold" FontSize="16" />
+                                <TextBlock x:Name="WhatIfTradeDescription" TextWrapping="Wrap" Opacity="0.8" />
+                                <Grid ColumnSpacing="24" RowSpacing="4" Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="220" />
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="140" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition /><RowDefinition /><RowDefinition />
+                                        <RowDefinition /><RowDefinition /><RowDefinition />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Grid.Row="0" Grid.Column="1" Text="Current" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Row="0" Grid.Column="2" Text="With Trades" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Row="0" Grid.Column="3" Text="Difference" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Row="1" Text="Net gain/loss" />
+                                    <TextBlock Grid.Row="1" Grid.Column="1" x:Name="WhatIfCurrentNet" />
+                                    <TextBlock Grid.Row="1" Grid.Column="2" x:Name="WhatIfNewNet" />
+                                    <TextBlock Grid.Row="1" Grid.Column="3" x:Name="WhatIfDiffNet" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Row="2" Text="Taxable gain (after AEA)" />
+                                    <TextBlock Grid.Row="2" Grid.Column="1" x:Name="WhatIfCurrentTaxable" />
+                                    <TextBlock Grid.Row="2" Grid.Column="2" x:Name="WhatIfNewTaxable" />
+                                    <TextBlock Grid.Row="2" Grid.Column="3" x:Name="WhatIfDiffTaxable" FontWeight="SemiBold" />
+                                    <Border Grid.Row="3" Grid.ColumnSpan="4" Height="1"
+                                            Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,4" />
+                                    <TextBlock Grid.Row="4" Text="CGT due" FontWeight="Bold" />
+                                    <TextBlock Grid.Row="4" Grid.Column="1" x:Name="WhatIfCurrentCgt" />
+                                    <TextBlock Grid.Row="4" Grid.Column="2" x:Name="WhatIfNewCgt" FontWeight="Bold" />
+                                    <TextBlock Grid.Row="4" Grid.Column="3" x:Name="WhatIfDiffCgt" FontWeight="Bold" />
+                                    <TextBlock Grid.Row="5" Text="Disposal details" Opacity="0.7" />
+                                    <TextBlock Grid.Row="5" Grid.Column="1" x:Name="WhatIfTradeSummary" Opacity="0.7" TextWrapping="Wrap"
+                                               Grid.ColumnSpan="3" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
             <!-- User Input Section -->
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     CornerRadius="8" Padding="20" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1">
-                <StackPanel Spacing="12">
-                    <TextBlock Text="Your Details for This Tax Year" Style="{StaticResource SubtitleTextBlockStyle}" />
-                    <TextBlock Text="Enter your total taxable income from ALL sources and any other capital gains (non-crypto). Capital gains sit on top of all other income when determining the CGT rate, so you must include all taxable income. Scottish/Welsh taxpayers: enter your actual income — the app uses the UK-wide basic rate band for CGT (per legislation), not Scottish/Welsh income tax bands."
-                               TextWrapping="Wrap" Opacity="0.7" />
-
-                    <NumberBox x:Name="TaxableIncomeBox" Header="Total Taxable Income (employment, self-employment, pensions, savings interest, dividends, rental etc.)"
-                               PlaceholderText="e.g. 45000" SpinButtonPlacementMode="Compact"
-                               Minimum="0" SmallChange="1000" LargeChange="10000"
-                               ValueChanged="TaxableIncome_ValueChanged"
-                               Width="350" HorizontalAlignment="Left"
-                               Description="Include all taxable income: wages, pensions, taxable savings interest (above your savings allowance), taxable dividends (above the £1,000 dividend allowance), rental income, and any other taxable income. Capital gains are stacked on top of this total to determine which CGT rate applies." />
-
-                    <NumberBox x:Name="OtherGainsBox" Header="Other Capital Gains (non-crypto, e.g. shares, property)"
-                               PlaceholderText="e.g. 0" SpinButtonPlacementMode="Compact"
-                               Minimum="0" SmallChange="100" LargeChange="1000"
-                               ValueChanged="OtherGains_ValueChanged"
-                               Width="350" HorizontalAlignment="Left" />
+                <StackPanel Spacing="8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Your Details for This Tax Year" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+                        <Button x:Name="UserDetailsCollapseBtn" Grid.Column="1" Content="▲" Click="UserDetailsCollapse_Click" Padding="8,4" />
+                    </Grid>
+                    <StackPanel x:Name="UserDetailsContent" Spacing="12">
+                        <TextBlock Text="Enter your total taxable income from ALL sources and any other capital gains (non-crypto). Capital gains sit on top of all other income when determining the CGT rate, so you must include all taxable income. Scottish/Welsh taxpayers: enter your actual income — the app uses the UK-wide basic rate band for CGT (per legislation), not Scottish/Welsh income tax bands."
+                                   TextWrapping="Wrap" Opacity="0.7" />
+                        <NumberBox x:Name="TaxableIncomeBox" Header="Total Taxable Income (employment, self-employment, pensions, savings interest, dividends, rental etc.)"
+                                   PlaceholderText="e.g. 45000" SpinButtonPlacementMode="Compact"
+                                   Minimum="0" SmallChange="1000" LargeChange="10000"
+                                   ValueChanged="TaxableIncome_ValueChanged"
+                                   Width="350" HorizontalAlignment="Left"
+                                   Description="Include all taxable income: wages, pensions, taxable savings interest (above your savings allowance), taxable dividends (above the £1,000 dividend allowance), rental income, and any other taxable income. Capital gains are stacked on top of this total to determine which CGT rate applies." />
+                        <NumberBox x:Name="OtherGainsBox" Header="Other Capital Gains (non-crypto, e.g. shares, property)"
+                                   PlaceholderText="e.g. 0" SpinButtonPlacementMode="Compact"
+                                   Minimum="0" SmallChange="100" LargeChange="1000"
+                                   ValueChanged="OtherGains_ValueChanged"
+                                   Width="350" HorizontalAlignment="Left" />
+                    </StackPanel>
                 </StackPanel>
             </Border>
 
@@ -90,60 +205,82 @@
                     CornerRadius="8" Padding="20" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1">
                 <StackPanel Spacing="8">
-                    <TextBlock Text="Capital Gains Tax Summary" Style="{StaticResource SubtitleTextBlockStyle}" />
-
-                    <Grid ColumnSpacing="20" RowSpacing="6">
+                    <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="300" />
+                            <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition /><RowDefinition /><RowDefinition />
-                            <RowDefinition /><RowDefinition /><RowDefinition />
-                            <RowDefinition /><RowDefinition /><RowDefinition />
-                            <RowDefinition /><RowDefinition /><RowDefinition />
-                        </Grid.RowDefinitions>
-
-                        <TextBlock Grid.Row="0" Text="Number of disposals" />
-                        <TextBlock Grid.Row="0" Grid.Column="1" x:Name="DisposalCountText" FontWeight="SemiBold" />
-
-                        <TextBlock Grid.Row="1" Text="Total disposal proceeds" />
-                        <TextBlock Grid.Row="1" Grid.Column="1" x:Name="TotalProceedsText" FontWeight="SemiBold" />
-
-                        <TextBlock Grid.Row="2" Text="Total allowable costs" />
-                        <TextBlock Grid.Row="2" Grid.Column="1" x:Name="TotalCostsText" FontWeight="SemiBold" />
-
-                        <Border Grid.Row="3" Grid.ColumnSpan="2" Height="1"
-                                Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,4" />
-
-                        <TextBlock Grid.Row="4" Text="Total gains" />
-                        <TextBlock Grid.Row="4" Grid.Column="1" x:Name="TotalGainsText" FontWeight="SemiBold"
-                                   Foreground="Green" />
-
-                        <TextBlock Grid.Row="5" Text="Total losses" />
-                        <TextBlock Grid.Row="5" Grid.Column="1" x:Name="TotalLossesText" FontWeight="SemiBold"
-                                   Foreground="Red" />
-
-                        <TextBlock Grid.Row="6" Text="Net gain/loss" />
-                        <TextBlock Grid.Row="6" Grid.Column="1" x:Name="NetGainText" FontWeight="SemiBold" />
-
-                        <Border Grid.Row="7" Grid.ColumnSpan="2" Height="1"
-                                Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,4" />
-
-                        <TextBlock Grid.Row="8" x:Name="AeaLabel" Text="Annual exempt amount" />
-                        <TextBlock Grid.Row="8" Grid.Column="1" x:Name="AeaText" FontWeight="SemiBold" />
-
-                        <TextBlock Grid.Row="9" Text="Taxable gain (after AEA)" />
-                        <TextBlock Grid.Row="9" Grid.Column="1" x:Name="TaxableGainText" FontWeight="Bold"
-                                   FontSize="16" />
-
-                        <TextBlock Grid.Row="10" x:Name="CgtRatesLabel" Opacity="0.7" />
-                        <TextBlock Grid.Row="10" Grid.Column="1" />
-
-                        <TextBlock Grid.Row="11" Text="CAPITAL GAINS TAX DUE" FontWeight="Bold" FontSize="16" />
-                        <TextBlock Grid.Row="11" Grid.Column="1" x:Name="CgtDueText" FontWeight="Bold"
-                                   FontSize="20" Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
+                        <TextBlock Text="Capital Gains Tax Summary" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+                        <Button x:Name="SummaryCollapseBtn" Grid.Column="1" Content="▲" Click="SummaryCollapse_Click" Padding="8,4" />
                     </Grid>
+                    <StackPanel x:Name="SummaryContent" Spacing="8">
+                        <Grid ColumnSpacing="20" RowSpacing="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="300" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Text="Number of disposals" />
+                            <TextBlock Grid.Row="0" Grid.Column="1" x:Name="DisposalCountText" FontWeight="SemiBold" />
+
+                            <TextBlock Grid.Row="1" Text="Total disposal proceeds" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" x:Name="TotalProceedsText" FontWeight="SemiBold" />
+
+                            <TextBlock Grid.Row="2" Text="Total allowable costs" />
+                            <TextBlock Grid.Row="2" Grid.Column="1" x:Name="TotalCostsText" FontWeight="SemiBold" />
+
+                            <Border Grid.Row="3" Grid.ColumnSpan="2" Height="1"
+                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,4" />
+
+                            <TextBlock Grid.Row="4" Text="Total gains" />
+                            <TextBlock Grid.Row="4" Grid.Column="1" x:Name="TotalGainsText" FontWeight="SemiBold"
+                                       Foreground="Green" />
+
+                            <TextBlock Grid.Row="5" Text="Total losses" />
+                            <TextBlock Grid.Row="5" Grid.Column="1" x:Name="TotalLossesText" FontWeight="SemiBold"
+                                       Foreground="Red" />
+
+                            <TextBlock Grid.Row="6" Text="Net gain/loss" />
+                            <TextBlock Grid.Row="6" Grid.Column="1" x:Name="NetGainText" FontWeight="SemiBold" />
+
+                            <Border Grid.Row="7" Grid.ColumnSpan="2" Height="1"
+                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,4" />
+
+                            <TextBlock Grid.Row="8" x:Name="AeaLabel" Text="Annual exempt amount" />
+                            <TextBlock Grid.Row="8" Grid.Column="1" x:Name="AeaText" FontWeight="SemiBold" />
+
+                            <TextBlock Grid.Row="9" Text="Taxable gain (after AEA)" />
+                            <TextBlock Grid.Row="9" Grid.Column="1" x:Name="TaxableGainText" FontWeight="Bold"
+                                       FontSize="16" />
+
+                            <TextBlock Grid.Row="10" x:Name="CgtRatesLabel" Opacity="0.7" />
+                            <TextBlock Grid.Row="10" Grid.Column="1" />
+
+                            <TextBlock Grid.Row="11" Text="CAPITAL GAINS TAX DUE" FontWeight="Bold" FontSize="16" />
+                            <TextBlock Grid.Row="11" Grid.Column="1" x:Name="CgtDueText" FontWeight="Bold"
+                                       FontSize="20" Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
+
+                            <Border Grid.Row="12" Grid.ColumnSpan="2" Height="1"
+                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,4" />
+
+                            <TextBlock Grid.Row="13" Text="Losses brought forward" />
+                            <TextBlock Grid.Row="13" Grid.Column="1" x:Name="LossesCarriedInText" />
+
+                            <TextBlock Grid.Row="14" Text="Losses used this year" />
+                            <TextBlock Grid.Row="14" Grid.Column="1" x:Name="LossesUsedText" />
+
+                            <TextBlock Grid.Row="15" Text="Losses carried forward" FontWeight="SemiBold" />
+                            <TextBlock Grid.Row="15" Grid.Column="1" x:Name="LossesCarriedOutText" FontWeight="SemiBold" />
+                        </Grid>
+                    </StackPanel>
                 </StackPanel>
             </Border>
 
@@ -151,16 +288,25 @@
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     CornerRadius="8" Padding="20" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1">
-                <StackPanel Spacing="4">
-                    <TextBlock Text="Tax Rates Applied" Style="{StaticResource SubtitleTextBlockStyle}" />
-                    <TextBlock x:Name="BasicRateText" Opacity="0.7" />
-                    <TextBlock x:Name="HigherRateText" Opacity="0.7" />
-                    <TextBlock x:Name="BasicBandText" Opacity="0.7" />
-                    <TextBlock x:Name="PersonalAllowanceText" Opacity="0.7" />
-                    <TextBlock Text="Rates sourced from HMRC. Crypto assets are taxed as 'other assets' for CGT purposes."
-                               Opacity="0.5" TextWrapping="Wrap" Margin="0,8,0,0" FontStyle="Italic" />
-                    <TextBlock Text="Scottish &amp; Welsh taxpayers: CGT is a UK-wide reserved tax. The rates, annual exempt amount, basic rate band (&#163;37,700), and personal allowance (&#163;12,570) shown here are the UK-wide figures — these apply to all UK taxpayers regardless of Scottish/Welsh income tax status. Your Scottish/Welsh income tax bands only affect income tax, not CGT."
-                               Opacity="0.5" TextWrapping="Wrap" Margin="0,4,0,0" FontStyle="Italic" />
+                <StackPanel Spacing="8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Tax Rates Applied" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+                        <Button x:Name="RatesCollapseBtn" Grid.Column="1" Content="▲" Click="RatesCollapse_Click" Padding="8,4" />
+                    </Grid>
+                    <StackPanel x:Name="RatesContent" Spacing="4">
+                        <TextBlock x:Name="BasicRateText" Opacity="0.7" />
+                        <TextBlock x:Name="HigherRateText" Opacity="0.7" />
+                        <TextBlock x:Name="BasicBandText" Opacity="0.7" />
+                        <TextBlock x:Name="PersonalAllowanceText" Opacity="0.7" />
+                        <TextBlock Text="Rates sourced from HMRC. Crypto assets are taxed as 'other assets' for CGT purposes."
+                                   Opacity="0.5" TextWrapping="Wrap" Margin="0,8,0,0" FontStyle="Italic" />
+                        <TextBlock Text="Scottish &amp; Welsh taxpayers: CGT is a UK-wide reserved tax. The rates, annual exempt amount, basic rate band (&#163;37,700), and personal allowance (&#163;12,570) shown here are the UK-wide figures — these apply to all UK taxpayers regardless of Scottish/Welsh income tax status. Your Scottish/Welsh income tax bands only affect income tax, not CGT."
+                                   Opacity="0.5" TextWrapping="Wrap" Margin="0,4,0,0" FontStyle="Italic" />
+                    </StackPanel>
                 </StackPanel>
             </Border>
 
@@ -170,38 +316,47 @@
                     CornerRadius="8" Padding="20" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1">
                 <StackPanel Spacing="8">
-                    <TextBlock x:Name="StartBalanceTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
-                    <TextBlock x:Name="StartBalanceTotalText" FontWeight="Bold" FontSize="14" />
-                    <ListView x:Name="StartBalanceList" SelectionMode="None" IsItemClickEnabled="False" MaxHeight="300">
-                        <ListView.HeaderTemplate>
-                            <DataTemplate>
-                                <Grid Padding="8,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="100" />
-                                        <ColumnDefinition Width="180" />
-                                        <ColumnDefinition Width="150" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="Asset" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="1" Text="Quantity" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="2" Text="GBP Value" FontWeight="SemiBold" />
-                                </Grid>
-                            </DataTemplate>
-                        </ListView.HeaderTemplate>
-                        <ListView.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Padding="8,2">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="100" />
-                                        <ColumnDefinition Width="180" />
-                                        <ColumnDefinition Width="150" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="{Binding Asset}" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="1" Text="{Binding QuantityFormatted}" />
-                                    <TextBlock Grid.Column="2" Text="{Binding GbpFormatted}" />
-                                </Grid>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="StartBalanceTitle" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+                        <Button x:Name="StartBalanceCollapseBtn" Grid.Column="1" Content="▲" Click="StartBalanceCollapse_Click" Padding="8,4" />
+                    </Grid>
+                    <StackPanel x:Name="StartBalanceContent" Spacing="8">
+                        <TextBlock x:Name="StartBalanceTotalText" FontWeight="Bold" FontSize="14" />
+                        <ListView x:Name="StartBalanceList" SelectionMode="None" IsItemClickEnabled="False" MaxHeight="300">
+                            <ListView.HeaderTemplate>
+                                <DataTemplate>
+                                    <Grid Padding="8,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100" />
+                                            <ColumnDefinition Width="180" />
+                                            <ColumnDefinition Width="150" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Asset" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="1" Text="Quantity" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="2" Text="GBP Value" FontWeight="SemiBold" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.HeaderTemplate>
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Padding="8,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100" />
+                                            <ColumnDefinition Width="180" />
+                                            <ColumnDefinition Width="150" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding Asset}" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="1" Text="{Binding QuantityFormatted}" />
+                                        <TextBlock Grid.Column="2" Text="{Binding GbpFormatted}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </StackPanel>
                 </StackPanel>
             </Border>
 
@@ -211,38 +366,47 @@
                     CornerRadius="8" Padding="20" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1">
                 <StackPanel Spacing="8">
-                    <TextBlock x:Name="EndBalanceTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
-                    <TextBlock x:Name="EndBalanceTotalText" FontWeight="Bold" FontSize="14" />
-                    <ListView x:Name="EndBalanceList" SelectionMode="None" IsItemClickEnabled="False" MaxHeight="300">
-                        <ListView.HeaderTemplate>
-                            <DataTemplate>
-                                <Grid Padding="8,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="100" />
-                                        <ColumnDefinition Width="180" />
-                                        <ColumnDefinition Width="150" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="Asset" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="1" Text="Quantity" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="2" Text="GBP Value" FontWeight="SemiBold" />
-                                </Grid>
-                            </DataTemplate>
-                        </ListView.HeaderTemplate>
-                        <ListView.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Padding="8,2">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="100" />
-                                        <ColumnDefinition Width="180" />
-                                        <ColumnDefinition Width="150" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="{Binding Asset}" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="1" Text="{Binding QuantityFormatted}" />
-                                    <TextBlock Grid.Column="2" Text="{Binding GbpFormatted}" />
-                                </Grid>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="EndBalanceTitle" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+                        <Button x:Name="EndBalanceCollapseBtn" Grid.Column="1" Content="▲" Click="EndBalanceCollapse_Click" Padding="8,4" />
+                    </Grid>
+                    <StackPanel x:Name="EndBalanceContent" Spacing="8">
+                        <TextBlock x:Name="EndBalanceTotalText" FontWeight="Bold" FontSize="14" />
+                        <ListView x:Name="EndBalanceList" SelectionMode="None" IsItemClickEnabled="False" MaxHeight="300">
+                            <ListView.HeaderTemplate>
+                                <DataTemplate>
+                                    <Grid Padding="8,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100" />
+                                            <ColumnDefinition Width="180" />
+                                            <ColumnDefinition Width="150" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Asset" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="1" Text="Quantity" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="2" Text="GBP Value" FontWeight="SemiBold" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.HeaderTemplate>
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Padding="8,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100" />
+                                            <ColumnDefinition Width="180" />
+                                            <ColumnDefinition Width="150" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding Asset}" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="1" Text="{Binding QuantityFormatted}" />
+                                        <TextBlock Grid.Column="2" Text="{Binding GbpFormatted}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </StackPanel>
                 </StackPanel>
             </Border>
 
@@ -256,31 +420,35 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBlock x:Name="WarningsTitle" Grid.Column="0" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
-                        <Button x:Name="CopyWarningsBtn" Grid.Column="1" Content="Copy to Clipboard" Click="CopyWarnings_Click" />
+                        <Button x:Name="CopyWarningsBtn" Grid.Column="1" Content="Copy to Clipboard" Click="CopyWarnings_Click" Margin="0,0,8,0" />
+                        <Button x:Name="WarningsCollapseBtn" Grid.Column="2" Content="▲" Click="WarningsCollapse_Click" Padding="8,4" />
                     </Grid>
-                    <TextBlock Text="These issues were found during calculation. They may affect the accuracy of the results."
-                               TextWrapping="Wrap" Opacity="0.7" />
-                    <ListView x:Name="WarningsList" SelectionMode="None" IsItemClickEnabled="False">
-                        <ListView.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Padding="4,2" ColumnSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="60" />
-                                        <ColumnDefinition Width="90" />
-                                        <ColumnDefinition Width="80" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="{Binding LevelText}" FontWeight="SemiBold"
-                                               Foreground="{Binding LevelColor}" />
-                                    <TextBlock Grid.Column="1" Text="{Binding Category}" Opacity="0.7" />
-                                    <TextBlock Grid.Column="2" Text="{Binding DateFormatted}" Opacity="0.7" />
-                                    <TextBlock Grid.Column="3" Text="{Binding Message}" TextWrapping="Wrap" />
-                                </Grid>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
+                    <StackPanel x:Name="WarningsContent" Spacing="8">
+                        <TextBlock Text="These issues were found during calculation. They may affect the accuracy of the results."
+                                   TextWrapping="Wrap" Opacity="0.7" />
+                        <ListView x:Name="WarningsList" SelectionMode="None" IsItemClickEnabled="False">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Padding="4,2" ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="60" />
+                                            <ColumnDefinition Width="90" />
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding LevelText}" FontWeight="SemiBold"
+                                                   Foreground="{Binding LevelColor}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Category}" Opacity="0.7" />
+                                        <TextBlock Grid.Column="2" Text="{Binding DateFormatted}" Opacity="0.7" />
+                                        <TextBlock Grid.Column="3" Text="{Binding Message}" TextWrapping="Wrap" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </StackPanel>
                 </StackPanel>
             </Border>
 
@@ -290,189 +458,428 @@
                     CornerRadius="8" Padding="20" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1">
                 <StackPanel Spacing="8">
-                    <TextBlock Text="Staking / Dividend Income" Style="{StaticResource SubtitleTextBlockStyle}" />
-                    <TextBlock Text="Staking rewards are taxed as miscellaneous income (not capital gains). This is separate from CGT."
-                               TextWrapping="Wrap" Opacity="0.7" />
-                    <TextBlock x:Name="StakingTotalText" FontWeight="Bold" FontSize="14" />
-                    <ListView x:Name="StakingList" SelectionMode="None" IsItemClickEnabled="False" MaxHeight="300">
-                        <ListView.HeaderTemplate>
-                            <DataTemplate>
-                                <Grid Padding="8,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="100" />
-                                        <ColumnDefinition Width="80" />
-                                        <ColumnDefinition Width="150" />
-                                        <ColumnDefinition Width="120" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="Date" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="1" Text="Asset" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="2" Text="Amount" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="3" Text="GBP Value" FontWeight="SemiBold" />
-                                </Grid>
-                            </DataTemplate>
-                        </ListView.HeaderTemplate>
-                        <ListView.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Padding="8,2">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="100" />
-                                        <ColumnDefinition Width="80" />
-                                        <ColumnDefinition Width="150" />
-                                        <ColumnDefinition Width="120" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="{Binding DateFormatted}" />
-                                    <TextBlock Grid.Column="1" Text="{Binding Asset}" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="2" Text="{Binding AmountFormatted}" />
-                                    <TextBlock Grid.Column="3" Text="{Binding GbpFormatted}" />
-                                </Grid>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Staking / Dividend Income" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="Export Staking Report" Click="ExportStakingReport_Click" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <Button x:Name="StakingCollapseBtn" Grid.Column="2" Content="▲" Click="StakingCollapse_Click" Padding="8,4" />
+                    </Grid>
+                    <StackPanel x:Name="StakingContent" Spacing="8">
+                        <TextBlock Text="Staking rewards are taxed as miscellaneous income (not capital gains). This is separate from CGT."
+                                   TextWrapping="Wrap" Opacity="0.7" />
+                        <TextBlock x:Name="StakingTotalText" FontWeight="Bold" FontSize="14" />
+                        <ListView x:Name="StakingByAssetList" SelectionMode="None" IsItemClickEnabled="False" MaxHeight="200">
+                            <ListView.HeaderTemplate>
+                                <DataTemplate>
+                                    <Grid Padding="8,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="150" />
+                                            <ColumnDefinition Width="120" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Asset" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="1" Text="Rewards" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="2" Text="Total Amount" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="3" Text="Total GBP" FontWeight="SemiBold" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.HeaderTemplate>
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Padding="8,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="150" />
+                                            <ColumnDefinition Width="120" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding Asset}" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Count}" />
+                                        <TextBlock Grid.Column="2" Text="{Binding TotalAmountFormatted}" />
+                                        <TextBlock Grid.Column="3" Text="{Binding TotalGbpFormatted}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                        <TextBlock Text="Individual Rewards" FontWeight="SemiBold" Margin="0,8,0,0" />
+                        <ListView x:Name="StakingList" SelectionMode="None" IsItemClickEnabled="False" MaxHeight="300">
+                            <ListView.HeaderTemplate>
+                                <DataTemplate>
+                                    <Grid Padding="8,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100" />
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="150" />
+                                            <ColumnDefinition Width="120" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Date" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="1" Text="Asset" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="2" Text="Amount" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="3" Text="GBP Value" FontWeight="SemiBold" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.HeaderTemplate>
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Padding="8,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100" />
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="150" />
+                                            <ColumnDefinition Width="120" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding DateFormatted}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Asset}" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="2" Text="{Binding AmountFormatted}" />
+                                        <TextBlock Grid.Column="3" Text="{Binding GbpFormatted}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </StackPanel>
                 </StackPanel>
             </Border>
 
-            <!-- What-If Scenario (only for open tax years) -->
-            <Border x:Name="WhatIfPanel" Visibility="Collapsed"
+            <!-- What-If Scenario panel moved above User Details -->
+
+            <!-- CGT Payment Deadlines -->
+            <Border x:Name="DeadlinePanel"
                     Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     CornerRadius="8" Padding="20" BorderBrush="{ThemeResource SystemFillColorAttentionBrush}"
                     BorderThickness="1">
-                <StackPanel Spacing="12">
-                    <TextBlock Text="What If? — Hypothetical Trade Scenarios" Style="{StaticResource SubtitleTextBlockStyle}" />
-                    <TextBlock Text="Add one or more hypothetical trades (buys or sells) to see how they would affect your tax liability for this year. This is a simulation only — nothing is saved."
-                               TextWrapping="Wrap" Opacity="0.7" />
-
-                    <StackPanel Orientation="Horizontal" Spacing="12">
-                        <ComboBox x:Name="WhatIfSideBox" Header="Side" Width="80" SelectedIndex="0">
-                            <ComboBoxItem Content="Sell" />
-                            <ComboBoxItem Content="Buy" />
-                        </ComboBox>
-                        <TextBox x:Name="WhatIfAssetBox" Header="Asset" PlaceholderText="e.g. XRP" Width="100" />
-                        <ComboBox x:Name="WhatIfCurrencyBox" Header="Price Currency" Width="100" SelectedIndex="0">
-                            <ComboBoxItem Content="USD" />
-                            <ComboBoxItem Content="GBP" />
-                            <ComboBoxItem Content="EUR" />
-                        </ComboBox>
-                        <NumberBox x:Name="WhatIfPriceBox" Header="Price Per Unit" PlaceholderText="e.g. 1.40"
-                                   SpinButtonPlacementMode="Compact" Minimum="0" Width="150" />
-                        <NumberBox x:Name="WhatIfQuantityBox" Header="Quantity to Sell" PlaceholderText="e.g. 2000"
-                                   SpinButtonPlacementMode="Compact" Minimum="0" Width="150" />
-                        <CalendarDatePicker x:Name="WhatIfDatePicker" Header="Sale Date" Width="160" />
+                <StackPanel Spacing="8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="CGT Payment Deadlines" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+                        <Button x:Name="DeadlinesCollapseBtn" Grid.Column="1" Content="▲" Click="DeadlinesCollapse_Click" Padding="8,4" />
+                    </Grid>
+                    <StackPanel x:Name="DeadlinesContent" Spacing="4">
+                        <TextBlock x:Name="DeadlineSaText" Opacity="0.7" TextWrapping="Wrap" />
+                        <TextBlock x:Name="DeadlineNoteText" Opacity="0.5" TextWrapping="Wrap" FontStyle="Italic" />
                     </StackPanel>
+                </StackPanel>
+            </Border>
 
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button x:Name="WhatIfAddBtn" Content="Add Trade" Click="WhatIfAdd_Click"
-                                Style="{StaticResource AccentButtonStyle}" />
-                        <Button x:Name="WhatIfCalculateBtn" Content="Calculate" Click="WhatIfCalculate_Click" IsEnabled="False" />
-                        <Button x:Name="WhatIfClearBtn" Content="Clear All" Click="WhatIfClear_Click" />
+            <!-- SA108 Figures -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1">
+                <StackPanel Spacing="8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="SA108 Self Assessment Figures" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="Copy to Clipboard" Click="CopySA108_Click" Margin="0,0,8,0" />
+                        <Button x:Name="Sa108CollapseBtn" Grid.Column="2" Content="▲" Click="Sa108Collapse_Click" Padding="8,4" />
+                    </Grid>
+                    <StackPanel x:Name="Sa108Content" Spacing="8">
+                        <TextBlock Text="Enter these figures on the Capital Gains Summary (SA108) page of your Self Assessment tax return."
+                                   Opacity="0.7" TextWrapping="Wrap" />
+                        <Grid ColumnSpacing="20" RowSpacing="4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="300" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition /><RowDefinition /><RowDefinition />
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="Box 3 — Number of disposals" />
+                            <TextBlock Grid.Row="0" Grid.Column="1" x:Name="Sa108DisposalCount" FontWeight="SemiBold" IsTextSelectionEnabled="True" />
+                            <TextBlock Grid.Row="1" Text="Box 4 — Disposal proceeds" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" x:Name="Sa108Proceeds" FontWeight="SemiBold" IsTextSelectionEnabled="True" />
+                            <TextBlock Grid.Row="2" Text="Box 5 — Allowable costs" />
+                            <TextBlock Grid.Row="2" Grid.Column="1" x:Name="Sa108Costs" FontWeight="SemiBold" IsTextSelectionEnabled="True" />
+                            <TextBlock Grid.Row="3" Text="Box 6 — Gains in the year" />
+                            <TextBlock Grid.Row="3" Grid.Column="1" x:Name="Sa108Gains" FontWeight="SemiBold" IsTextSelectionEnabled="True" />
+                            <TextBlock Grid.Row="4" Text="Box 7 — Losses in the year" />
+                            <TextBlock Grid.Row="4" Grid.Column="1" x:Name="Sa108Losses" FontWeight="SemiBold" IsTextSelectionEnabled="True" />
+                            <TextBlock Grid.Row="5" Text="Box 8 — Losses brought forward and used" />
+                            <TextBlock Grid.Row="5" Grid.Column="1" x:Name="Sa108LossesUsed" FontWeight="SemiBold" IsTextSelectionEnabled="True" />
+                        </Grid>
                     </StackPanel>
+                </StackPanel>
+            </Border>
 
-                    <InfoBar x:Name="WhatIfInfoBar" IsOpen="False" />
+            <!-- Bed & Breakfast Report -->
+            <Border x:Name="BnbPanel" Visibility="Collapsed"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20"
+                    BorderBrush="{ThemeResource SystemFillColorCautionBrush}"
+                    BorderThickness="1">
+                <StackPanel Spacing="8">
+                    <!-- Panel header (always visible) -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Bed &amp; Breakfast Matched Disposals" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+                        <Button x:Name="BnbCollapseBtn" Grid.Column="1" Content="▲" Click="BnbCollapse_Click" Padding="8,4" />
+                    </Grid>
+                    <!-- Collapsible content -->
+                    <StackPanel x:Name="BnbContent" Spacing="8">
+                        <TextBlock Text="These disposals were matched to reacquisitions within 30 days under the B&amp;B rule (TCGA 1992 s106A). HMRC may query these — ensure supporting records are available."
+                                   TextWrapping="Wrap" Opacity="0.7" />
+                        <TextBlock x:Name="BnbCountText" FontWeight="SemiBold" />
+                        <!-- Asset filter -->
+                        <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="6" Padding="12">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <ComboBox x:Name="BnbAssetFilter" Header="Filter by Asset" Width="150"
+                                          PlaceholderText="All Assets"
+                                          SelectionChanged="BnbAssetFilter_SelectionChanged" />
+                                <Button Content="Clear Filter" VerticalAlignment="Bottom" Click="ClearBnbFilter_Click" />
+                                <TextBlock x:Name="BnbFilterStatusText" VerticalAlignment="Bottom" Opacity="0.7"
+                                           Margin="12,0,0,0" Padding="0,0,0,6" />
+                            </StackPanel>
+                        </Border>
+                        <!-- Column header row (padding-right accounts for Expander chevron ~40px) -->
+                        <Grid Padding="8,4,48,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="100" />
+                                <ColumnDefinition Width="70" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="120" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Date" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="1" Text="Asset" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="2" Text="Quantity" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="3" Text="Proceeds" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="4" Text="Cost" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="5" Text="Gain/Loss" FontWeight="SemiBold" />
+                        </Grid>
+                        <ItemsControl x:Name="BnbList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                                        <Expander.Header>
+                                            <Grid Padding="0,2" ColumnSpacing="0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="100" />
+                                                    <ColumnDefinition Width="70" />
+                                                    <ColumnDefinition Width="120" />
+                                                    <ColumnDefinition Width="120" />
+                                                    <ColumnDefinition Width="120" />
+                                                    <ColumnDefinition Width="120" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="{Binding DateFormatted}" />
+                                                <TextBlock Grid.Column="1" Text="{Binding Asset}" FontWeight="SemiBold" />
+                                                <TextBlock Grid.Column="2" Text="{Binding QuantityFormatted}" />
+                                                <TextBlock Grid.Column="3" Text="{Binding ProceedsFormatted}" />
+                                                <TextBlock Grid.Column="4" Text="{Binding CostFormatted}" />
+                                                <TextBlock Grid.Column="5" Text="{Binding GainFormatted}" Foreground="{Binding GainColor}" />
+                                            </Grid>
+                                        </Expander.Header>
+                                        <!-- Drill-down: underlying ledger entries -->
+                                        <Border Background="{ThemeResource SubtleFillColorTertiaryBrush}"
+                                                CornerRadius="4" Padding="12" Margin="0,4">
+                                            <StackPanel Spacing="4">
+                                                <!-- Disposal (sell) entries -->
+                                                <TextBlock Text="Disposal (sell) — Kraken ledger entries"
+                                                           FontWeight="SemiBold" FontSize="12" Opacity="0.8" />
+                                                <Grid Padding="4,2" ColumnSpacing="8"
+                                                      Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="3">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="130" />
+                                                        <ColumnDefinition Width="90" />
+                                                        <ColumnDefinition Width="70" />
+                                                        <ColumnDefinition Width="160" />
+                                                        <ColumnDefinition Width="120" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" Text="Date/Time" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                    <TextBlock Grid.Column="1" Text="Type" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                    <TextBlock Grid.Column="2" Text="Asset" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                    <TextBlock Grid.Column="3" Text="Amount" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                    <TextBlock Grid.Column="4" Text="Fee" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                    <TextBlock Grid.Column="5" Text="Ledger ID" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                </Grid>
+                                                <ItemsControl ItemsSource="{Binding DisposalEntries}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Grid Padding="4,2" ColumnSpacing="8">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="130" />
+                                                                    <ColumnDefinition Width="90" />
+                                                                    <ColumnDefinition Width="70" />
+                                                                    <ColumnDefinition Width="160" />
+                                                                    <ColumnDefinition Width="120" />
+                                                                    <ColumnDefinition Width="*" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock Grid.Column="0" Text="{Binding DateFormatted}" FontSize="12" />
+                                                                <TextBlock Grid.Column="1" Text="{Binding Type}" FontSize="12" Opacity="0.8" />
+                                                                <TextBlock Grid.Column="2" Text="{Binding Asset}" FontSize="12" FontWeight="SemiBold" />
+                                                                <TextBlock Grid.Column="3" Text="{Binding AmountFormatted}" FontSize="12" />
+                                                                <TextBlock Grid.Column="4" Text="{Binding FeeFormatted}" FontSize="12" Opacity="0.6" />
+                                                                <TextBlock Grid.Column="5" Text="{Binding LedgerId}" FontSize="11" Opacity="0.4" IsTextSelectionEnabled="True" />
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                                <!-- Acquisition (buy) entries -->
+                                                <TextBlock Text="Matched reacquisition (buy, within 30 days) — Kraken ledger entries"
+                                                           FontWeight="SemiBold" FontSize="12" Opacity="0.8" Margin="0,10,0,0" />
+                                                <TextBlock Text="{Binding AcquisitionDateLabel}"
+                                                           FontSize="12" Opacity="0.6" FontStyle="Italic" />
+                                                <Grid Padding="4,2" ColumnSpacing="8"
+                                                      Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="3">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="130" />
+                                                        <ColumnDefinition Width="90" />
+                                                        <ColumnDefinition Width="70" />
+                                                        <ColumnDefinition Width="160" />
+                                                        <ColumnDefinition Width="120" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" Text="Date/Time" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                    <TextBlock Grid.Column="1" Text="Type" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                    <TextBlock Grid.Column="2" Text="Asset" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                    <TextBlock Grid.Column="3" Text="Amount" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                    <TextBlock Grid.Column="4" Text="Fee" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                    <TextBlock Grid.Column="5" Text="Ledger ID" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                </Grid>
+                                                <ItemsControl ItemsSource="{Binding AcquisitionEntries}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Grid Padding="4,2" ColumnSpacing="8">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="130" />
+                                                                    <ColumnDefinition Width="90" />
+                                                                    <ColumnDefinition Width="70" />
+                                                                    <ColumnDefinition Width="160" />
+                                                                    <ColumnDefinition Width="120" />
+                                                                    <ColumnDefinition Width="*" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock Grid.Column="0" Text="{Binding DateFormatted}" FontSize="12" />
+                                                                <TextBlock Grid.Column="1" Text="{Binding Type}" FontSize="12" Opacity="0.8" />
+                                                                <TextBlock Grid.Column="2" Text="{Binding Asset}" FontSize="12" FontWeight="SemiBold" />
+                                                                <TextBlock Grid.Column="3" Text="{Binding AmountFormatted}" FontSize="12" />
+                                                                <TextBlock Grid.Column="4" Text="{Binding FeeFormatted}" FontSize="12" Opacity="0.6" />
+                                                                <TextBlock Grid.Column="5" Text="{Binding LedgerId}" FontSize="11" Opacity="0.4" IsTextSelectionEnabled="True" />
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </Border>
+                                    </Expander>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
 
-                    <!-- Pending What-If Trades List -->
-                    <Border x:Name="WhatIfTradesPanel" Visibility="Collapsed"
-                            Background="{ThemeResource SubtleFillColorTertiaryBrush}"
-                            CornerRadius="6" Padding="12">
-                        <StackPanel Spacing="4">
-                            <TextBlock x:Name="WhatIfTradesHeader" Text="Hypothetical Trades" FontWeight="SemiBold" />
-                            <ListView x:Name="WhatIfTradesList" SelectionMode="None" IsItemClickEnabled="False">
-                                <ListView.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid Padding="4,2" ColumnSpacing="8">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="{Binding Description}" VerticalAlignment="Center" />
-                                            <Button Grid.Column="1" Content="&#xE711;" FontFamily="Segoe MDL2 Assets"
-                                                    Click="WhatIfRemoveTrade_Click" Tag="{Binding Index}"
-                                                    Padding="4,2" Background="Transparent" />
-                                        </Grid>
-                                    </DataTemplate>
-                                </ListView.ItemTemplate>
-                            </ListView>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- What-If Results -->
-                    <Border x:Name="WhatIfResultsPanel" Visibility="Collapsed"
-                            Background="{ThemeResource SubtleFillColorSecondaryBrush}"
-                            CornerRadius="6" Padding="16">
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="What-If Results" FontWeight="Bold" FontSize="16" />
-                            <TextBlock x:Name="WhatIfTradeDescription" TextWrapping="Wrap" Opacity="0.8" />
-
-                            <Grid ColumnSpacing="24" RowSpacing="4" Margin="0,8,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="220" />
-                                    <ColumnDefinition Width="140" />
-                                    <ColumnDefinition Width="140" />
-                                    <ColumnDefinition Width="140" />
-                                </Grid.ColumnDefinitions>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition /><RowDefinition /><RowDefinition />
-                                    <RowDefinition /><RowDefinition /><RowDefinition />
-                                </Grid.RowDefinitions>
-
-                                <!-- Header row -->
-                                <TextBlock Grid.Row="0" Grid.Column="1" Text="Current" FontWeight="SemiBold" />
-                                <TextBlock Grid.Row="0" Grid.Column="2" Text="With Trades" FontWeight="SemiBold" />
-                                <TextBlock Grid.Row="0" Grid.Column="3" Text="Difference" FontWeight="SemiBold" />
-
-                                <TextBlock Grid.Row="1" Text="Net gain/loss" />
-                                <TextBlock Grid.Row="1" Grid.Column="1" x:Name="WhatIfCurrentNet" />
-                                <TextBlock Grid.Row="1" Grid.Column="2" x:Name="WhatIfNewNet" />
-                                <TextBlock Grid.Row="1" Grid.Column="3" x:Name="WhatIfDiffNet" FontWeight="SemiBold" />
-
-                                <TextBlock Grid.Row="2" Text="Taxable gain (after AEA)" />
-                                <TextBlock Grid.Row="2" Grid.Column="1" x:Name="WhatIfCurrentTaxable" />
-                                <TextBlock Grid.Row="2" Grid.Column="2" x:Name="WhatIfNewTaxable" />
-                                <TextBlock Grid.Row="2" Grid.Column="3" x:Name="WhatIfDiffTaxable" FontWeight="SemiBold" />
-
-                                <Border Grid.Row="3" Grid.ColumnSpan="4" Height="1"
-                                        Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,4" />
-
-                                <TextBlock Grid.Row="4" Text="CGT due" FontWeight="Bold" />
-                                <TextBlock Grid.Row="4" Grid.Column="1" x:Name="WhatIfCurrentCgt" />
-                                <TextBlock Grid.Row="4" Grid.Column="2" x:Name="WhatIfNewCgt" FontWeight="Bold" />
-                                <TextBlock Grid.Row="4" Grid.Column="3" x:Name="WhatIfDiffCgt" FontWeight="Bold" />
-
-                                <TextBlock Grid.Row="5" Text="Disposal details" Opacity="0.7" />
-                                <TextBlock Grid.Row="5" Grid.Column="1" x:Name="WhatIfTradeSummary" Opacity="0.7" TextWrapping="Wrap"
-                                           Grid.ColumnSpan="3" />
-                            </Grid>
-                        </StackPanel>
-                    </Border>
+            <!-- Asset P&L Breakdown -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1">
+                <StackPanel Spacing="8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="P&amp;L by Asset" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+                        <Button x:Name="AssetPnlCollapseBtn" Grid.Column="1" Content="▲" Click="AssetPnlCollapse_Click" Padding="8,4" />
+                    </Grid>
+                    <StackPanel x:Name="AssetPnlContent" Spacing="8">
+                        <ListView x:Name="AssetPnlList" SelectionMode="None" IsItemClickEnabled="False">
+                            <ListView.HeaderTemplate>
+                                <DataTemplate>
+                                    <Grid Padding="8,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="120" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Asset" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="1" Text="Disposals" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="2" Text="Proceeds" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="3" Text="Cost" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="4" Text="Gain/Loss" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="5" Text="% of Total" FontWeight="SemiBold" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.HeaderTemplate>
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Padding="8,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="120" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding Asset}" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Count}" />
+                                        <TextBlock Grid.Column="2" Text="{Binding ProceedsFormatted}" />
+                                        <TextBlock Grid.Column="3" Text="{Binding CostFormatted}" />
+                                        <TextBlock Grid.Column="4" Text="{Binding GainFormatted}" Foreground="{Binding GainColor}" />
+                                        <TextBlock Grid.Column="5" Text="{Binding PercentFormatted}" Opacity="0.7" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </StackPanel>
                 </StackPanel>
             </Border>
 
             <!-- Disposals Detail -->
-            <TextBlock Text="Individual Disposals" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,8,0,0" />
-            <TextBlock Text="Each row is a disposal event matched using HMRC rules (same-day, bed &amp; breakfast 30-day, then Section 104 pool)."
-                       TextWrapping="Wrap" Opacity="0.7" />
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" Margin="0,8,0,0">
+                <StackPanel Spacing="8">
+                    <!-- Panel header (always visible) -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Individual Disposals" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="Export HMRC Schedule" Click="ExportHmrcSchedule_Click"
+                                VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <Button x:Name="DisposalsCollapseBtn" Grid.Column="2" Content="▲" Click="DisposalsCollapse_Click" Padding="8,4" />
+                    </Grid>
 
-            <!-- Filter Controls -->
-            <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}"
-                    CornerRadius="6" Padding="12" Margin="0,8,0,0">
-                <StackPanel Orientation="Horizontal" Spacing="12">
-                    <ComboBox x:Name="DisposalAssetFilter" Header="Filter by Asset" Width="150"
-                              PlaceholderText="All Assets" SelectionChanged="DisposalAssetFilter_SelectionChanged">
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding}" />
-                            </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
-                    <Button x:Name="ClearFilterBtn" Content="Clear Filter" VerticalAlignment="Bottom"
-                            Click="ClearDisposalFilter_Click" />
-                    <TextBlock x:Name="FilterStatusText" VerticalAlignment="Bottom" Opacity="0.7"
-                               Margin="12,0,0,0" Padding="0,0,0,6" />
-                </StackPanel>
-            </Border>
+                    <!-- Collapsible content -->
+                    <StackPanel x:Name="DisposalsContent" Spacing="8">
+                        <TextBlock Text="Each row is a disposal event matched using HMRC rules (same-day, bed &amp; breakfast 30-day, then Section 104 pool). Expand a row to see the underlying Kraken ledger entries."
+                                   TextWrapping="Wrap" Opacity="0.7" />
 
-            <ListView x:Name="DisposalsList" SelectionMode="None" IsItemClickEnabled="False">
-                <ListView.HeaderTemplate>
-                    <DataTemplate>
-                        <Grid Padding="8,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
+                        <!-- Filter Controls -->
+                        <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="6" Padding="12">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <ComboBox x:Name="DisposalAssetFilter" Header="Filter by Asset" Width="150"
+                                          PlaceholderText="All Assets" SelectionChanged="DisposalAssetFilter_SelectionChanged" />
+                                <Button x:Name="ClearFilterBtn" Content="Clear Filter" VerticalAlignment="Bottom"
+                                        Click="ClearDisposalFilter_Click" />
+                                <TextBlock x:Name="FilterStatusText" VerticalAlignment="Bottom" Opacity="0.7"
+                                           Margin="12,0,0,0" Padding="0,0,0,6" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Column header (right-padding matches Expander chevron width ~48px) -->
+                        <Grid Padding="8,4,48,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="100" />
                                 <ColumnDefinition Width="70" />
@@ -490,31 +897,147 @@
                             <TextBlock Grid.Column="5" Text="Gain/Loss" FontWeight="SemiBold" />
                             <TextBlock Grid.Column="6" Text="Rule" FontWeight="SemiBold" />
                         </Grid>
-                    </DataTemplate>
-                </ListView.HeaderTemplate>
-                <ListView.ItemTemplate>
-                    <DataTemplate>
-                        <Grid Padding="8,2">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="100" />
-                                <ColumnDefinition Width="70" />
-                                <ColumnDefinition Width="120" />
-                                <ColumnDefinition Width="120" />
-                                <ColumnDefinition Width="120" />
-                                <ColumnDefinition Width="120" />
-                                <ColumnDefinition Width="120" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="{Binding DateFormatted}" />
-                            <TextBlock Grid.Column="1" Text="{Binding Asset}" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="2" Text="{Binding QuantityFormatted}" />
-                            <TextBlock Grid.Column="3" Text="{Binding ProceedsFormatted}" />
-                            <TextBlock Grid.Column="4" Text="{Binding CostFormatted}" />
-                            <TextBlock Grid.Column="5" Text="{Binding GainFormatted}" Foreground="{Binding GainColor}" />
-                            <TextBlock Grid.Column="6" Text="{Binding MatchingRule}" Opacity="0.7" />
-                        </Grid>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
+
+                        <ListView x:Name="DisposalsList" SelectionMode="None" IsItemClickEnabled="False">
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    <Setter Property="Padding" Value="0" />
+                                </Style>
+                            </ListView.ItemContainerStyle>
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                                        <Expander.Header>
+                                            <Grid Padding="8,2" ColumnSpacing="0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="100" />
+                                                    <ColumnDefinition Width="70" />
+                                                    <ColumnDefinition Width="120" />
+                                                    <ColumnDefinition Width="120" />
+                                                    <ColumnDefinition Width="120" />
+                                                    <ColumnDefinition Width="120" />
+                                                    <ColumnDefinition Width="120" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="{Binding DateFormatted}" />
+                                                <TextBlock Grid.Column="1" Text="{Binding Asset}" FontWeight="SemiBold" />
+                                                <TextBlock Grid.Column="2" Text="{Binding QuantityFormatted}" />
+                                                <TextBlock Grid.Column="3" Text="{Binding ProceedsFormatted}" />
+                                                <TextBlock Grid.Column="4" Text="{Binding CostFormatted}" Foreground="{Binding CostColor}" />
+                                                <TextBlock Grid.Column="5" Text="{Binding GainFormatted}" Foreground="{Binding GainColor}" />
+                                                <TextBlock Grid.Column="6" Text="{Binding MatchingRule}" Opacity="0.7" />
+                                                <TextBlock Grid.Column="6" Text="{Binding NoteIndicator}" Foreground="CornflowerBlue"
+                                                           HorizontalAlignment="Right" Margin="0,0,4,0" />
+                                            </Grid>
+                                        </Expander.Header>
+                                        <!-- Drill-down: underlying ledger entries + edit -->
+                                        <Border Background="{ThemeResource SubtleFillColorTertiaryBrush}"
+                                                CornerRadius="4" Padding="12" Margin="0,4">
+                                            <StackPanel Spacing="4">
+                                                <!-- Disposal (sell) entries -->
+                                                <TextBlock Text="Disposal (sell) — Kraken ledger entries"
+                                                           FontWeight="SemiBold" FontSize="12" Opacity="0.8" />
+                                                <Grid Padding="4,2" ColumnSpacing="8"
+                                                      Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="3">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="130" />
+                                                        <ColumnDefinition Width="90" />
+                                                        <ColumnDefinition Width="70" />
+                                                        <ColumnDefinition Width="160" />
+                                                        <ColumnDefinition Width="120" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" Text="Date/Time" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                    <TextBlock Grid.Column="1" Text="Type" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                    <TextBlock Grid.Column="2" Text="Asset" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                    <TextBlock Grid.Column="3" Text="Amount" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                    <TextBlock Grid.Column="4" Text="Fee" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                    <TextBlock Grid.Column="5" Text="Ledger ID" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                </Grid>
+                                                <ItemsControl ItemsSource="{Binding DisposalEntries}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Grid Padding="4,2" ColumnSpacing="8">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="130" />
+                                                                    <ColumnDefinition Width="90" />
+                                                                    <ColumnDefinition Width="70" />
+                                                                    <ColumnDefinition Width="160" />
+                                                                    <ColumnDefinition Width="120" />
+                                                                    <ColumnDefinition Width="*" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock Grid.Column="0" Text="{Binding DateFormatted}" FontSize="12" />
+                                                                <TextBlock Grid.Column="1" Text="{Binding Type}" FontSize="12" Opacity="0.8" />
+                                                                <TextBlock Grid.Column="2" Text="{Binding Asset}" FontSize="12" FontWeight="SemiBold" />
+                                                                <TextBlock Grid.Column="3" Text="{Binding AmountFormatted}" FontSize="12" />
+                                                                <TextBlock Grid.Column="4" Text="{Binding FeeFormatted}" FontSize="12" Opacity="0.6" />
+                                                                <TextBlock Grid.Column="5" Text="{Binding LedgerId}" FontSize="11" Opacity="0.4" IsTextSelectionEnabled="True" />
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+
+                                                <!-- Matched acquisition entries (B&B only) -->
+                                                <StackPanel Visibility="{Binding AcquisitionSectionVisibility}" Spacing="4" Margin="0,10,0,0">
+                                                    <TextBlock Text="Matched reacquisition (buy, within 30 days) — Kraken ledger entries"
+                                                               FontWeight="SemiBold" FontSize="12" Opacity="0.8" />
+                                                    <TextBlock Text="{Binding AcquisitionDateLabel}"
+                                                               FontSize="12" Opacity="0.6" FontStyle="Italic" />
+                                                    <Grid Padding="4,2" ColumnSpacing="8"
+                                                          Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="3">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="130" />
+                                                            <ColumnDefinition Width="90" />
+                                                            <ColumnDefinition Width="70" />
+                                                            <ColumnDefinition Width="160" />
+                                                            <ColumnDefinition Width="120" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Grid.Column="0" Text="Date/Time" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                        <TextBlock Grid.Column="1" Text="Type" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                        <TextBlock Grid.Column="2" Text="Asset" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                        <TextBlock Grid.Column="3" Text="Amount" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                        <TextBlock Grid.Column="4" Text="Fee" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                        <TextBlock Grid.Column="5" Text="Ledger ID" FontSize="11" FontWeight="SemiBold" Opacity="0.7" />
+                                                    </Grid>
+                                                    <ItemsControl ItemsSource="{Binding AcquisitionEntries}">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <Grid Padding="4,2" ColumnSpacing="8">
+                                                                    <Grid.ColumnDefinitions>
+                                                                        <ColumnDefinition Width="130" />
+                                                                        <ColumnDefinition Width="90" />
+                                                                        <ColumnDefinition Width="70" />
+                                                                        <ColumnDefinition Width="160" />
+                                                                        <ColumnDefinition Width="120" />
+                                                                        <ColumnDefinition Width="*" />
+                                                                    </Grid.ColumnDefinitions>
+                                                                    <TextBlock Grid.Column="0" Text="{Binding DateFormatted}" FontSize="12" />
+                                                                    <TextBlock Grid.Column="1" Text="{Binding Type}" FontSize="12" Opacity="0.8" />
+                                                                    <TextBlock Grid.Column="2" Text="{Binding Asset}" FontSize="12" FontWeight="SemiBold" />
+                                                                    <TextBlock Grid.Column="3" Text="{Binding AmountFormatted}" FontSize="12" />
+                                                                    <TextBlock Grid.Column="4" Text="{Binding FeeFormatted}" FontSize="12" Opacity="0.6" />
+                                                                    <TextBlock Grid.Column="5" Text="{Binding LedgerId}" FontSize="11" Opacity="0.4" IsTextSelectionEnabled="True" />
+                                                                </Grid>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                </StackPanel>
+
+                                                <!-- Edit button -->
+                                                <Button Content="✏ Edit cost basis / notes" Click="EditDisposal_Click"
+                                                        Margin="0,10,0,0" />
+                                            </StackPanel>
+                                        </Border>
+                                    </Expander>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                        <TextBlock Text="Expand a disposal row to view ledger entries and edit its cost basis or notes."
+                                   Opacity="0.5" FontSize="12" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
 
         </StackPanel>
     </ScrollViewer>

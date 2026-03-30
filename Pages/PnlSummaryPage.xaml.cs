@@ -28,7 +28,60 @@ public sealed partial class PnlSummaryPage : Page
         {
             _mainWindow = mw;
             _summaries = summaries.OrderBy(s => s.StartYear).ToList();
+            BuildComparisonTable();
             BuildPnlCards();
+        }
+    }
+
+    private void BuildComparisonTable()
+    {
+        ComparisonGrid.Children.Clear();
+        ComparisonGrid.ColumnDefinitions.Clear();
+        ComparisonGrid.RowDefinitions.Clear();
+
+        if (_summaries.Count == 0) return;
+
+        // Label column + one column per year
+        ComparisonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
+        foreach (var _ in _summaries)
+            ComparisonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
+
+        var metrics = new (string Label, Func<TaxYearSummary, decimal> Value, bool IsColored)[]
+        {
+            ("Disposal Proceeds", s => s.TotalDisposalProceeds, false),
+            ("Allowable Costs", s => s.TotalAllowableCosts, false),
+            ("Gains", s => s.TotalGains, true),
+            ("Losses", s => s.TotalLosses, true),
+            ("Net Gain/Loss", s => s.NetGainOrLoss, true),
+            ("Losses Carried In", s => s.LossesCarriedIn, false),
+            ("Losses Carried Out", s => s.LossesCarriedOut, false),
+            ("Staking Income", s => s.StakingIncome, false),
+            ("CGT Due", s => s.CgtDue, true),
+            ("No. Disposals", s => s.Disposals.Count, false),
+        };
+
+        int row = 0;
+
+        // Header row
+        ComparisonGrid.RowDefinitions.Add(new RowDefinition());
+        for (int c = 0; c < _summaries.Count; c++)
+            AddGridCell(ComparisonGrid, row, c + 1, _summaries[c].TaxYear, true, null, 1.0);
+        row++;
+
+        foreach (var (label, valueFn, isColored) in metrics)
+        {
+            ComparisonGrid.RowDefinitions.Add(new RowDefinition());
+            AddGridCell(ComparisonGrid, row, 0, label);
+
+            for (int c = 0; c < _summaries.Count; c++)
+            {
+                var val = valueFn(_summaries[c]);
+                Windows.UI.Color? color = null;
+                if (isColored)
+                    color = val >= 0 ? Colors.Green : Colors.Red;
+                AddGridCell(ComparisonGrid, row, c + 1, FormatGbp(val), false, color);
+            }
+            row++;
         }
     }
 

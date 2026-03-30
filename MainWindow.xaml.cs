@@ -50,6 +50,17 @@ public sealed partial class MainWindow : Window
         _settings = await _storageService.LoadSettingsAsync();
         _krakenService.SetCredentials(_settings.KrakenApiKey, _settings.KrakenApiSecret);
 
+        // Apply saved theme
+        if (Content is FrameworkElement root)
+        {
+            root.RequestedTheme = _settings.Theme switch
+            {
+                "Light" => ElementTheme.Light,
+                "Dark" => ElementTheme.Dark,
+                _ => ElementTheme.Default
+            };
+        }
+
         RestoreWindowPosition();
 
         if (_storageService.HasSavedLedger())
@@ -119,8 +130,8 @@ public sealed partial class MainWindow : Window
         // Now recalculate with the loaded rates
         progress?.Report((0, "Calculating capital gains..."));
 
-        var cgtService = new CgtCalculationService(_fxService, _warnings, _trades, _settings.DelistedAssets);
-        _taxYearSummaries = cgtService.CalculateAllTaxYears(_ledger, _settings.TaxYearInputs);
+        var cgtService = new CgtCalculationService(_fxService, _warnings, _trades, _settings.DelistedAssets, _settings.CostBasisOverrides);
+        _taxYearSummaries = cgtService.CalculateAllTaxYears(GetMergedLedger(), _settings.TaxYearInputs);
 
         RebuildTabs();
     }
@@ -139,8 +150,8 @@ public sealed partial class MainWindow : Window
         _fxService = new FxConversionService(_krakenService, _warnings);
         _fxService.LoadAllFromDiskCache();
 
-        var cgtService = new CgtCalculationService(_fxService, _warnings, _trades, _settings.DelistedAssets);
-        _taxYearSummaries = cgtService.CalculateAllTaxYears(_ledger, _settings.TaxYearInputs);
+        var cgtService = new CgtCalculationService(_fxService, _warnings, _trades, _settings.DelistedAssets, _settings.CostBasisOverrides);
+        _taxYearSummaries = cgtService.CalculateAllTaxYears(GetMergedLedger(), _settings.TaxYearInputs);
 
         RebuildTabs();
         return Task.CompletedTask;
@@ -156,8 +167,8 @@ public sealed partial class MainWindow : Window
 
         _warnings = new List<CalculationWarning>();
 
-        var cgtService = new CgtCalculationService(_fxService, _warnings, _trades, _settings.DelistedAssets);
-        _taxYearSummaries = cgtService.CalculateAllTaxYears(_ledger, _settings.TaxYearInputs);
+        var cgtService = new CgtCalculationService(_fxService, _warnings, _trades, _settings.DelistedAssets, _settings.CostBasisOverrides);
+        _taxYearSummaries = cgtService.CalculateAllTaxYears(GetMergedLedger(), _settings.TaxYearInputs);
 
         RebuildTabs();
         await Task.CompletedTask;
@@ -165,9 +176,9 @@ public sealed partial class MainWindow : Window
 
     private void RebuildTabs()
     {
-        // Remove dynamic tabs (keep Settings, Ledger, Delisted Assets at indices 0-2)
-        while (NavView.MenuItems.Count > 3)
-            NavView.MenuItems.RemoveAt(3);
+        // Remove dynamic tabs (keep Settings, Ledger, Delisted Assets, CSV Import at indices 0-3)
+        while (NavView.MenuItems.Count > 4)
+            NavView.MenuItems.RemoveAt(4);
 
         if (_taxYearSummaries.Count > 0)
         {
@@ -222,6 +233,10 @@ public sealed partial class MainWindow : Window
             {
                 ContentFrame.Navigate(typeof(DelistedAssetsPage), this);
             }
+            else if (tag == "CsvImport")
+            {
+                ContentFrame.Navigate(typeof(CsvImportPage), this);
+            }
             else if (tag == "PnLSummary")
             {
                 ContentFrame.Navigate(typeof(PnlSummaryPage), (this, _taxYearSummaries));
@@ -239,6 +254,44 @@ public sealed partial class MainWindow : Window
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Returns the Kraken ledger merged with any manually imported entries (CSV imports).
+    /// </summary>
+    private List<KrakenLedgerEntry> GetMergedLedger()
+    {
+        var merged = new List<KrakenLedgerEntry>(_ledger);
+        foreach (var manual in _settings.ManualLedgerEntries)
+        {
+            merged.Add(new KrakenLedgerEntry
+            {
+                RefId = manual.RefId,
+                Time = manual.Date.ToUnixTimeSeconds(),
+                Type = manual.Type,
+                SubType = "",
+                Asset = manual.Asset,
+                AmountStr = manual.Amount.ToString(),
+                FeeStr = manual.Fee.ToString(),
+                BalanceStr = "0",
+                LedgerId = manual.RefId,
+                NormalisedAsset = manual.NormalisedAsset
+            });
+        }
+        return merged;
+    }
+
+    public void AddAuditEntry(string action, string detail)
+    {
+        _settings.AuditLog.Add(new AuditLogEntry
+        {
+            Timestamp = DateTimeOffset.UtcNow,
+            Action = action,
+            Detail = detail
+        });
+        // Keep last 500 entries
+        if (_settings.AuditLog.Count > 500)
+            _settings.AuditLog.RemoveRange(0, _settings.AuditLog.Count - 500);
     }
 
     public KrakenApiService KrakenService => _krakenService;

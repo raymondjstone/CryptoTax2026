@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -17,7 +18,8 @@ public sealed partial class TaxYearPage : Page
     private MainWindow? _mainWindow;
     private TaxYearSummary? _summary;
     private bool _isLoading;
-    private List<DisposalViewModel>? _allDisposals; // Unfiltered list for filtering
+    private List<DisposalViewModel>? _allDisposals;
+    private List<BnbDisposalViewModel> _allBnbDisposals = new();
 
     public TaxYearPage()
     {
@@ -61,7 +63,11 @@ public sealed partial class TaxYearPage : Page
         OtherGainsBox.Value = userInput?.OtherCapitalGains > 0 ? (double)userInput.OtherCapitalGains : double.NaN;
 
         UpdateSummaryDisplay();
+        LoadDeadlines();
+        LoadSA108();
+        LoadBnbReport();
         LoadBalances();
+        LoadAssetPnl();
         LoadDisposals();
         LoadWarnings();
         LoadStaking();
@@ -82,6 +88,10 @@ public sealed partial class TaxYearPage : Page
         TaxableGainText.Text = FormatGbp(_summary.TaxableGain);
         CgtDueText.Text = FormatGbp(_summary.CgtDue);
 
+        LossesCarriedInText.Text = _summary.LossesCarriedIn > 0 ? FormatGbp(_summary.LossesCarriedIn) : "£0.00";
+        LossesUsedText.Text = _summary.LossesUsedThisYear > 0 ? FormatGbp(_summary.LossesUsedThisYear) : "£0.00";
+        LossesCarriedOutText.Text = _summary.LossesCarriedOut > 0 ? FormatGbp(_summary.LossesCarriedOut) : "£0.00";
+
         CgtRatesLabel.Text = $"Basic rate: {_summary.BasicRateCgt:P0} / Higher rate: {_summary.HigherRateCgt:P0}";
 
         BasicRateText.Text = $"CGT basic rate: {_summary.BasicRateCgt:P0}";
@@ -89,6 +99,148 @@ public sealed partial class TaxYearPage : Page
         BasicBandText.Text = $"Basic rate band: {FormatGbp(_summary.BasicRateBand)}";
         PersonalAllowanceText.Text = $"Personal allowance: {FormatGbp(_summary.PersonalAllowance)}";
     }
+
+    private void LoadDeadlines()
+    {
+        if (_summary == null) return;
+
+        var endYear = _summary.StartYear + 1;
+        var saDeadline = new DateTimeOffset(endYear + 1, 1, 31, 23, 59, 59, TimeSpan.Zero);
+        var saOnlineDeadline = saDeadline;
+        var saPaperDeadline = new DateTimeOffset(endYear, 10, 31, 23, 59, 59, TimeSpan.Zero);
+
+        DeadlineSaText.Text = $"Self Assessment online filing & payment deadline: {saOnlineDeadline:dd MMMM yyyy}\n" +
+                              $"Paper filing deadline: {saPaperDeadline:dd MMMM yyyy}";
+        DeadlineNoteText.Text = "Note: For UK residential property disposals completed from 27 October 2021, you must report and pay CGT within 60 days of completion via the 'Report and pay Capital Gains Tax on UK property' service. Crypto assets are not residential property — the standard SA deadline applies.";
+    }
+
+    private void LoadSA108()
+    {
+        if (_summary == null) return;
+
+        Sa108DisposalCount.Text = _summary.Disposals.Count.ToString();
+        Sa108Proceeds.Text = FormatGbp(_summary.TotalDisposalProceeds);
+        Sa108Costs.Text = FormatGbp(_summary.TotalAllowableCosts);
+        Sa108Gains.Text = FormatGbp(_summary.TotalGains);
+        Sa108Losses.Text = _summary.TotalLosses != 0 ? FormatGbp(Math.Abs(_summary.TotalLosses)) : "£0.00";
+        Sa108LossesUsed.Text = _summary.LossesUsedThisYear > 0 ? FormatGbp(_summary.LossesUsedThisYear) : "£0.00";
+    }
+
+    private void CopySA108_Click(object sender, RoutedEventArgs e)
+    {
+        if (_summary == null) return;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"SA108 Capital Gains Summary — {_summary.TaxYear}");
+        sb.AppendLine($"Generated: {DateTimeOffset.Now:dd/MM/yyyy HH:mm}");
+        sb.AppendLine();
+        sb.AppendLine($"Box 3  Number of disposals:           {_summary.Disposals.Count}");
+        sb.AppendLine($"Box 4  Disposal proceeds:             {FormatGbp(_summary.TotalDisposalProceeds)}");
+        sb.AppendLine($"Box 5  Allowable costs:               {FormatGbp(_summary.TotalAllowableCosts)}");
+        sb.AppendLine($"Box 6  Gains in the year:             {FormatGbp(_summary.TotalGains)}");
+        sb.AppendLine($"Box 7  Losses in the year:            {FormatGbp(Math.Abs(_summary.TotalLosses))}");
+        sb.AppendLine($"Box 8  Losses brought forward & used: {FormatGbp(_summary.LossesUsedThisYear)}");
+
+        var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        dp.SetText(sb.ToString());
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+    }
+
+    private void LoadBnbReport()
+    {
+        if (_summary == null) return;
+
+        var ledger = _mainWindow?.Ledger ?? new List<KrakenLedgerEntry>();
+        var ledgerByRefId = ledger.ToLookup(e => e.RefId);
+
+        _allBnbDisposals = _summary.Disposals
+            .Where(d => d.MatchingRule.Contains("Bed", StringComparison.OrdinalIgnoreCase) ||
+                        d.MatchingRule.Contains("B&B", StringComparison.OrdinalIgnoreCase) ||
+                        d.MatchingRule.Contains("Breakfast", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(d => d.Date)
+            .Select(d =>
+            {
+                var disposalEntries = ledgerByRefId[d.TradeId]
+                    .OrderBy(e => e.DateTime)
+                    .Select(e => new BnbLedgerEntryViewModel(e))
+                    .ToList();
+
+                var acquisitionEntries = string.IsNullOrEmpty(d.AcquisitionRefId)
+                    ? new List<BnbLedgerEntryViewModel>()
+                    : ledgerByRefId[d.AcquisitionRefId]
+                        .OrderBy(e => e.DateTime)
+                        .Select(e => new BnbLedgerEntryViewModel(e))
+                        .ToList();
+
+                return new BnbDisposalViewModel(d, disposalEntries, acquisitionEntries);
+            })
+            .ToList();
+
+        if (_allBnbDisposals.Count == 0)
+        {
+            BnbPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        BnbPanel.Visibility = Visibility.Visible;
+        BnbCountText.Text = $"{_allBnbDisposals.Count} disposal(s) matched under the Bed & Breakfast rule";
+
+        var bnbAssets = _allBnbDisposals.Select(d => d.Asset).Distinct().OrderBy(a => a).ToList();
+        BnbAssetFilter.ItemsSource = bnbAssets;
+        BnbAssetFilter.SelectedIndex = -1;
+
+        BnbList.ItemsSource = _allBnbDisposals;
+        UpdateBnbFilterStatus();
+    }
+
+    private void BnbAssetFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        ApplyBnbFilter();
+    }
+
+    private void ClearBnbFilter_Click(object sender, RoutedEventArgs e)
+    {
+        BnbAssetFilter.SelectedIndex = -1;
+        ApplyBnbFilter();
+    }
+
+    private void ApplyBnbFilter()
+    {
+        var selectedAsset = BnbAssetFilter.SelectedItem as string;
+        BnbList.ItemsSource = string.IsNullOrEmpty(selectedAsset)
+            ? _allBnbDisposals
+            : _allBnbDisposals.Where(d => d.Asset.Equals(selectedAsset, StringComparison.OrdinalIgnoreCase)).ToList();
+        UpdateBnbFilterStatus();
+    }
+
+    private void UpdateBnbFilterStatus()
+    {
+        var displayed = (BnbList.ItemsSource as IEnumerable<BnbDisposalViewModel>)?.Count() ?? 0;
+        var total = _allBnbDisposals.Count;
+        BnbFilterStatusText.Text = displayed == total
+            ? $"Showing all {total} B&B disposal(s)"
+            : $"Showing {displayed} of {total} B&B disposal(s)";
+    }
+
+    private static void ToggleSection(StackPanel content, Button button)
+    {
+        var collapsed = content.Visibility == Visibility.Collapsed;
+        content.Visibility = collapsed ? Visibility.Visible : Visibility.Collapsed;
+        button.Content = collapsed ? "▲" : "▼";
+    }
+
+    private void WhatIfCollapse_Click(object sender, RoutedEventArgs e) => ToggleSection(WhatIfContent, WhatIfCollapseBtn);
+    private void UserDetailsCollapse_Click(object sender, RoutedEventArgs e) => ToggleSection(UserDetailsContent, UserDetailsCollapseBtn);
+    private void SummaryCollapse_Click(object sender, RoutedEventArgs e) => ToggleSection(SummaryContent, SummaryCollapseBtn);
+    private void RatesCollapse_Click(object sender, RoutedEventArgs e) => ToggleSection(RatesContent, RatesCollapseBtn);
+    private void StartBalanceCollapse_Click(object sender, RoutedEventArgs e) => ToggleSection(StartBalanceContent, StartBalanceCollapseBtn);
+    private void EndBalanceCollapse_Click(object sender, RoutedEventArgs e) => ToggleSection(EndBalanceContent, EndBalanceCollapseBtn);
+    private void WarningsCollapse_Click(object sender, RoutedEventArgs e) => ToggleSection(WarningsContent, WarningsCollapseBtn);
+    private void StakingCollapse_Click(object sender, RoutedEventArgs e) => ToggleSection(StakingContent, StakingCollapseBtn);
+    private void DeadlinesCollapse_Click(object sender, RoutedEventArgs e) => ToggleSection(DeadlinesContent, DeadlinesCollapseBtn);
+    private void Sa108Collapse_Click(object sender, RoutedEventArgs e) => ToggleSection(Sa108Content, Sa108CollapseBtn);
+    private void AssetPnlCollapse_Click(object sender, RoutedEventArgs e) => ToggleSection(AssetPnlContent, AssetPnlCollapseBtn);
+    private void BnbCollapse_Click(object sender, RoutedEventArgs e) => ToggleSection(BnbContent, BnbCollapseBtn);
 
     private void LoadBalances()
     {
@@ -121,16 +273,60 @@ public sealed partial class TaxYearPage : Page
         }
     }
 
+    private void LoadAssetPnl()
+    {
+        if (_summary == null) return;
+
+        var totalAbsGain = _summary.Disposals.Sum(d => Math.Abs(d.GainOrLoss));
+        var assetPnl = _summary.Disposals
+            .GroupBy(d => d.Asset, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new AssetPnlViewModel
+            {
+                Asset = g.Key,
+                Count = g.Count().ToString(),
+                Proceeds = g.Sum(d => d.DisposalProceeds),
+                Cost = g.Sum(d => d.AllowableCost),
+                Gain = g.Sum(d => d.GainOrLoss),
+                TotalAbsGain = totalAbsGain
+            })
+            .OrderByDescending(a => Math.Abs(a.Gain))
+            .ToList();
+
+        AssetPnlList.ItemsSource = assetPnl;
+    }
+
     private void LoadDisposals()
     {
         if (_summary == null) return;
 
+        var ledger = _mainWindow?.Ledger ?? new List<KrakenLedgerEntry>();
+        var costOverrides = _mainWindow?.Settings.CostBasisOverrides ?? new();
+        var allNotes = _mainWindow?.Settings.DisposalNotes ?? new();
+        var ledgerByRefId = ledger.ToLookup(e => e.RefId);
+
         _allDisposals = _summary.Disposals
             .OrderBy(d => d.Date)
-            .Select(d => new DisposalViewModel(d))
+            .Select(d =>
+            {
+                var disposalEntries = ledgerByRefId[d.TradeId]
+                    .OrderBy(e => e.DateTime)
+                    .Select(e => new BnbLedgerEntryViewModel(e))
+                    .ToList();
+
+                var acquisitionEntries = string.IsNullOrEmpty(d.AcquisitionRefId)
+                    ? new List<BnbLedgerEntryViewModel>()
+                    : ledgerByRefId[d.AcquisitionRefId]
+                        .OrderBy(e => e.DateTime)
+                        .Select(e => new BnbLedgerEntryViewModel(e))
+                        .ToList();
+
+                return new DisposalViewModel(d,
+                    costOverrides.ContainsKey(d.TradeId),
+                    allNotes.ContainsKey(d.TradeId),
+                    disposalEntries, acquisitionEntries);
+            })
             .ToList();
 
-        // Populate the asset filter dropdown with unique assets
         var assets = _allDisposals
             .Select(d => d.Asset)
             .Distinct()
@@ -140,10 +336,11 @@ public sealed partial class TaxYearPage : Page
         DisposalAssetFilter.ItemsSource = assets;
         DisposalAssetFilter.SelectedIndex = -1;
 
-        // Show all disposals initially
         DisposalsList.ItemsSource = _allDisposals;
         UpdateFilterStatus();
     }
+
+    private void DisposalsCollapse_Click(object sender, RoutedEventArgs e) => ToggleSection(DisposalsContent, DisposalsCollapseBtn);
 
     private void DisposalAssetFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -154,6 +351,127 @@ public sealed partial class TaxYearPage : Page
     {
         DisposalAssetFilter.SelectedIndex = -1;
         ApplyDisposalFilter();
+    }
+
+    private async void EditDisposal_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.DataContext is DisposalViewModel vm)
+            await ShowDisposalEditDialogAsync(vm);
+    }
+
+    private async Task ShowDisposalEditDialogAsync(DisposalViewModel vm)
+    {
+        if (_mainWindow == null) return;
+        var record = vm.Record;
+        var overrides = _mainWindow.Settings.CostBasisOverrides;
+        var hasExisting = overrides.TryGetValue(record.TradeId, out var existingCost);
+
+        var notes = _mainWindow.Settings.DisposalNotes;
+        notes.TryGetValue(record.TradeId, out var existingNote);
+
+        var costBox = new TextBox
+        {
+            Header = "Allowable Cost (GBP)",
+            PlaceholderText = "e.g. 1500.00",
+            Text = hasExisting ? existingCost.ToString("0.##") : record.AllowableCost.ToString("0.##")
+        };
+
+        var noteBox = new TextBox
+        {
+            Header = "Notes",
+            PlaceholderText = "e.g. Transferred from Coinbase, original purchase price...",
+            Text = existingNote ?? "",
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            MaxHeight = 100
+        };
+
+        var info = new TextBlock
+        {
+            Text = $"{record.Asset} — {record.QuantityDisposed:0.########} disposed on {record.Date:dd/MM/yyyy}\n" +
+                   $"Proceeds: £{record.DisposalProceeds:#,##0.00}  |  Calculated cost: £{record.AllowableCost:#,##0.00}  |  Rule: {record.MatchingRule}",
+            TextWrapping = TextWrapping.Wrap,
+            Opacity = 0.7,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+
+        var panel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(info);
+        panel.Children.Add(costBox);
+        panel.Children.Add(noteBox);
+
+        var dialog = new ContentDialog
+        {
+            Title = "Disposal Details",
+            Content = panel,
+            PrimaryButtonText = "Save",
+            SecondaryButtonText = hasExisting ? "Remove Cost Override" : "",
+            CloseButtonText = "Cancel",
+            XamlRoot = this.XamlRoot
+        };
+
+        var result = await dialog.ShowAsync();
+
+        if (result == ContentDialogResult.Primary)
+        {
+            // Save note
+            var noteText = noteBox.Text?.Trim();
+            if (!string.IsNullOrEmpty(noteText))
+                notes[record.TradeId] = noteText;
+            else
+                notes.Remove(record.TradeId);
+
+            // Save cost override
+            if (decimal.TryParse(costBox.Text, System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var newCost))
+            {
+                overrides[record.TradeId] = newCost;
+                _mainWindow.AddAuditEntry("Cost Override", $"{record.Asset} {record.Date:dd/MM/yyyy} — cost set to £{newCost:#,##0.00}");
+            }
+
+            await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
+            await _mainWindow.RecalculateAndBuildTabsAsync();
+        }
+        else if (result == ContentDialogResult.Secondary && hasExisting)
+        {
+            overrides.Remove(record.TradeId);
+            await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
+            await _mainWindow.RecalculateAndBuildTabsAsync();
+        }
+    }
+
+    private async void ExportHmrcSchedule_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mainWindow == null || _summary == null || _summary.Disposals.Count == 0) return;
+
+        var picker = new FileSavePicker();
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_mainWindow);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+        picker.SuggestedFileName = $"HMRC_Disposal_Schedule_{_summary.TaxYear.Replace("/", "-")}";
+        picker.FileTypeChoices.Add("CSV File", new List<string> { ".csv" });
+
+        var file = await picker.PickSaveFileAsync();
+        if (file == null) return;
+
+        var lines = new List<string>
+        {
+            "Asset Description,Date of Disposal (DD/MM/YYYY),Disposal Proceeds (GBP),Allowable Cost (GBP),Gain or Loss (GBP),Matching Rule"
+        };
+
+        foreach (var d in _summary.Disposals.OrderBy(d => d.Date))
+        {
+            lines.Add($"\"{d.QuantityDisposed:0.########} {d.Asset}\",{d.Date:dd/MM/yyyy},{d.DisposalProceeds:0.00},{d.AllowableCost:0.00},{d.GainOrLoss:0.00},{d.MatchingRule}");
+        }
+
+        lines.Add("");
+        lines.Add($"Total Disposal Proceeds,,{_summary.TotalDisposalProceeds:0.00}");
+        lines.Add($"Total Allowable Costs,,,{_summary.TotalAllowableCosts:0.00}");
+        lines.Add($"Total Gains,,,,{_summary.TotalGains:0.00}");
+        lines.Add($"Total Losses,,,,{_summary.TotalLosses:0.00}");
+        lines.Add($"Net Gain/Loss,,,,{_summary.NetGainOrLoss:0.00}");
+
+        await System.IO.File.WriteAllLinesAsync(file.Path, lines);
     }
 
     private void ApplyDisposalFilter()
@@ -282,10 +600,51 @@ public sealed partial class TaxYearPage : Page
         StakingPanel.Visibility = Visibility.Visible;
         StakingTotalText.Text = $"Total staking/dividend income: {FormatGbp(_summary.StakingIncome)}";
 
+        // Per-asset summary
+        StakingByAssetList.ItemsSource = _summary.StakingRewards
+            .GroupBy(s => s.Asset, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new StakingAssetSummaryViewModel
+            {
+                Asset = g.Key,
+                Count = g.Count().ToString(),
+                TotalAmount = g.Sum(s => s.Amount),
+                TotalGbp = g.Sum(s => s.GbpValue)
+            })
+            .OrderByDescending(a => a.TotalGbp)
+            .ToList();
+
         StakingList.ItemsSource = _summary.StakingRewards
             .OrderBy(s => s.Date)
             .Select(s => new StakingViewModel(s))
             .ToList();
+    }
+
+    private async void ExportStakingReport_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mainWindow == null || _summary == null || _summary.StakingRewards.Count == 0) return;
+
+        var picker = new FileSavePicker();
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_mainWindow);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+        picker.SuggestedFileName = $"Staking_Income_{_summary.TaxYear.Replace("/", "-")}";
+        picker.FileTypeChoices.Add("CSV File", new List<string> { ".csv" });
+
+        var file = await picker.PickSaveFileAsync();
+        if (file == null) return;
+
+        var lines = new List<string>
+        {
+            "Date,Asset,Amount,GBP Value"
+        };
+
+        foreach (var r in _summary.StakingRewards.OrderBy(r => r.Date))
+            lines.Add($"{r.Date:dd/MM/yyyy},{r.Asset},{r.Amount:0.########},{r.GbpValue:0.00}");
+
+        lines.Add("");
+        lines.Add($"Total,,, {_summary.StakingIncome:0.00}");
+
+        await System.IO.File.WriteAllLinesAsync(file.Path, lines);
     }
 
     private TaxYearUserInput EnsureUserInput()
@@ -354,6 +713,36 @@ public sealed partial class TaxYearPage : Page
 
         var currency = (WhatIfCurrencyBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "USD";
         var isBuy = (WhatIfSideBox.SelectedItem as ComboBoxItem)?.Content?.ToString() == "Buy";
+
+        // 30-day repurchase alert: if this is a Buy, check if there are recent sales
+        // of the same asset within 30 days prior that would trigger B&B matching
+        if (isBuy && _mainWindow != null)
+        {
+            var normAsset = KrakenLedgerEntry.NormaliseAssetName(asset);
+            var allDisposals = _mainWindow.TaxYearSummaries
+                .SelectMany(s => s.Disposals)
+                .Where(d => string.Equals(d.Asset, normAsset, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            // Also check existing what-if sells
+            var recentSales = allDisposals
+                .Where(d => d.Date >= saleDate.AddDays(-30) && d.Date <= saleDate)
+                .ToList();
+
+            // Check pending what-if sells too
+            var pendingWhatIfSales = _whatIfTrades
+                .Where(t => !t.IsBuy && string.Equals(t.Asset, normAsset, StringComparison.OrdinalIgnoreCase)
+                    && t.Date >= saleDate.AddDays(-30) && t.Date <= saleDate)
+                .ToList();
+
+            if (recentSales.Count > 0 || pendingWhatIfSales.Count > 0)
+            {
+                WhatIfInfoBar.Message = $"Warning: Buying {normAsset} within 30 days of a sale will trigger Bed & Breakfast matching (TCGA 1992 s106A). " +
+                    $"The buy will be matched to the earlier sale, potentially changing its cost basis.";
+                WhatIfInfoBar.Severity = InfoBarSeverity.Warning;
+                WhatIfInfoBar.IsOpen = true;
+            }
+        }
 
         _whatIfTrades.Add(new WhatIfTrade
         {
@@ -465,7 +854,7 @@ public sealed partial class TaxYearPage : Page
 
         // Run the full CGT calculation with all hypothetical trades
         var tempWarnings = new List<CalculationWarning>();
-        var tempCgtService = new CgtCalculationService(_mainWindow.FxService, tempWarnings, _mainWindow.Trades, _mainWindow.Settings.DelistedAssets);
+        var tempCgtService = new CgtCalculationService(_mainWindow.FxService, tempWarnings, _mainWindow.Trades, _mainWindow.Settings.DelistedAssets, _mainWindow.Settings.CostBasisOverrides);
         var tempSummaries = tempCgtService.CalculateAllTaxYears(tempLedger, _mainWindow.Settings.TaxYearInputs);
 
         var whatIfSummary = tempSummaries.FirstOrDefault(s => s.TaxYear == _summary.TaxYear);
@@ -644,19 +1033,44 @@ public sealed partial class TaxYearPage : Page
 public class DisposalViewModel
 {
     private readonly DisposalRecord _record;
+    private readonly bool _hasOverride;
+    private readonly bool _hasNote;
 
-    public DisposalViewModel(DisposalRecord record) => _record = record;
+    public DisposalViewModel(DisposalRecord record, bool hasOverride = false, bool hasNote = false,
+        List<BnbLedgerEntryViewModel>? disposalEntries = null,
+        List<BnbLedgerEntryViewModel>? acquisitionEntries = null)
+    {
+        _record = record;
+        _hasOverride = hasOverride;
+        _hasNote = hasNote;
+        DisposalEntries = disposalEntries ?? new List<BnbLedgerEntryViewModel>();
+        AcquisitionEntries = acquisitionEntries ?? new List<BnbLedgerEntryViewModel>();
+    }
 
+    public DisposalRecord Record => _record;
     public string DateFormatted => _record.Date.ToString("dd/MM/yyyy");
     public string Asset => _record.Asset;
     public string QuantityFormatted => _record.QuantityDisposed.ToString("0.########");
     public string ProceedsFormatted => FormatGbp(_record.DisposalProceeds);
-    public string CostFormatted => FormatGbp(_record.AllowableCost);
+    public string CostFormatted => _hasOverride ? $"{FormatGbp(_record.AllowableCost)} *" : FormatGbp(_record.AllowableCost);
     public string GainFormatted => FormatGbp(_record.GainOrLoss);
     public string MatchingRule => _record.MatchingRule;
     public SolidColorBrush GainColor => _record.GainOrLoss >= 0
         ? new SolidColorBrush(Colors.Green)
         : new SolidColorBrush(Colors.Red);
+    public SolidColorBrush CostColor => _hasOverride
+        ? new SolidColorBrush(Colors.Orange)
+        : new SolidColorBrush(Microsoft.UI.Colors.White) { Opacity = 0 };
+    public string NoteIndicator => _hasNote ? "[note]" : "";
+
+    public List<BnbLedgerEntryViewModel> DisposalEntries { get; }
+    public List<BnbLedgerEntryViewModel> AcquisitionEntries { get; }
+    public Visibility AcquisitionSectionVisibility => AcquisitionEntries.Count > 0
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public string AcquisitionDateLabel => AcquisitionEntries.Count > 0
+        ? $"Reacquired on {AcquisitionEntries.Min(e => e.RawDateTime):dd/MM/yyyy}"
+        : "";
 
     private static string FormatGbp(decimal amount)
     {
@@ -725,4 +1139,95 @@ public class WhatIfTradeViewModel
             return $"{side} {_trade.Quantity:#,##0.########} {_trade.Asset} at {_trade.Price:#,##0.########} {_trade.Currency} on {_trade.Date:dd/MM/yyyy}";
         }
     }
+}
+
+public class StakingAssetSummaryViewModel
+{
+    public string Asset { get; set; } = "";
+    public string Count { get; set; } = "0";
+    public decimal TotalAmount { get; set; }
+    public decimal TotalGbp { get; set; }
+
+    public string TotalAmountFormatted => TotalAmount.ToString("0.########");
+    public string TotalGbpFormatted => TotalGbp < 0
+        ? $"-£{Math.Abs(TotalGbp):#,##0.00}"
+        : $"£{TotalGbp:#,##0.00}";
+}
+
+public class AssetPnlViewModel
+{
+    public string Asset { get; set; } = "";
+    public string Count { get; set; } = "0";
+    public decimal Proceeds { get; set; }
+    public decimal Cost { get; set; }
+    public decimal Gain { get; set; }
+    public decimal TotalAbsGain { get; set; }
+
+    public string ProceedsFormatted => FormatGbp(Proceeds);
+    public string CostFormatted => FormatGbp(Cost);
+    public string GainFormatted => FormatGbp(Gain);
+    public string PercentFormatted => TotalAbsGain > 0
+        ? $"{Math.Abs(Gain) / TotalAbsGain * 100:0.0}%"
+        : "";
+    public SolidColorBrush GainColor => Gain >= 0
+        ? new SolidColorBrush(Colors.Green)
+        : new SolidColorBrush(Colors.Red);
+
+    private static string FormatGbp(decimal amount)
+    {
+        return amount < 0 ? $"-£{Math.Abs(amount):#,##0.00}" : $"£{amount:#,##0.00}";
+    }
+}
+
+public class BnbLedgerEntryViewModel
+{
+    private readonly KrakenLedgerEntry _entry;
+
+    public BnbLedgerEntryViewModel(KrakenLedgerEntry entry) => _entry = entry;
+
+    public DateTimeOffset RawDateTime => _entry.DateTime;
+    public string DateFormatted => _entry.DateTime.ToString("dd/MM/yyyy HH:mm");
+    public string Type => string.IsNullOrEmpty(_entry.SubType)
+        ? _entry.Type
+        : $"{_entry.Type}/{_entry.SubType}";
+    public string Asset => string.IsNullOrEmpty(_entry.NormalisedAsset) ? _entry.Asset : _entry.NormalisedAsset;
+    public string AmountFormatted => _entry.Amount >= 0
+        ? $"+{_entry.Amount:0.########}"
+        : _entry.Amount.ToString("0.########");
+    public string FeeFormatted => _entry.Fee != 0 ? $"{_entry.Fee:0.########}" : "";
+    public string LedgerId => _entry.LedgerId;
+}
+
+public class BnbDisposalViewModel
+{
+    private readonly DisposalRecord _record;
+
+    public BnbDisposalViewModel(DisposalRecord record,
+        List<BnbLedgerEntryViewModel> disposalEntries,
+        List<BnbLedgerEntryViewModel> acquisitionEntries)
+    {
+        _record = record;
+        DisposalEntries = disposalEntries;
+        AcquisitionEntries = acquisitionEntries;
+    }
+
+    public string DateFormatted => _record.Date.ToString("dd/MM/yyyy");
+    public string Asset => _record.Asset;
+    public string QuantityFormatted => _record.QuantityDisposed.ToString("0.########");
+    public string ProceedsFormatted => FormatGbp(_record.DisposalProceeds);
+    public string CostFormatted => FormatGbp(_record.AllowableCost);
+    public string GainFormatted => FormatGbp(_record.GainOrLoss);
+    public SolidColorBrush GainColor => _record.GainOrLoss >= 0
+        ? new SolidColorBrush(Colors.Green)
+        : new SolidColorBrush(Colors.Red);
+
+    public List<BnbLedgerEntryViewModel> DisposalEntries { get; }
+    public List<BnbLedgerEntryViewModel> AcquisitionEntries { get; }
+
+    public string AcquisitionDateLabel => AcquisitionEntries.Count > 0
+        ? $"Reacquired on {AcquisitionEntries.Min(e => e.RawDateTime):dd/MM/yyyy}"
+        : "No reacquisition entries found in ledger (data may predate this feature)";
+
+    private static string FormatGbp(decimal amount)
+        => amount < 0 ? $"-£{Math.Abs(amount):#,##0.00}" : $"£{amount:#,##0.00}";
 }

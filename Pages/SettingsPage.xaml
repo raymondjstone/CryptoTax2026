@@ -76,6 +76,18 @@
 
             <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
 
+            <!-- ========== DATA FRESHNESS ========== -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="16"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Data Freshness" FontWeight="SemiBold" FontSize="14" />
+                    <TextBlock x:Name="LedgerFreshnessText" Text="" Opacity="0.7" />
+                    <TextBlock x:Name="FxFreshnessText" Text="" Opacity="0.7" />
+                    <TextBlock x:Name="FreshnessWarningText" Text="" Foreground="Orange" Visibility="Collapsed" />
+                </StackPanel>
+            </Border>
+
             <!-- ========== SUMMARY ========== -->
             <TextBlock Text="Ledger Summary" Style="{StaticResource TitleTextBlockStyle}" />
 
@@ -88,8 +100,59 @@
 
             <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
 
+            <TextBlock Text="Appearance" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <ComboBox x:Name="ThemeSelector" Header="Theme" Width="160"
+                          SelectionChanged="ThemeSelector_Changed">
+                    <ComboBoxItem Content="System Default" Tag="Default" />
+                    <ComboBoxItem Content="Light" Tag="Light" />
+                    <ComboBoxItem Content="Dark" Tag="Dark" />
+                </ComboBox>
+            </StackPanel>
+
+            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
+
             <TextBlock Text="Data Location" Style="{StaticResource SubtitleTextBlockStyle}" />
             <TextBlock x:Name="DataPathText" Text="" IsTextSelectionEnabled="True" Opacity="0.7" TextWrapping="Wrap" />
+
+            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
+
+            <!-- ========== AUDIT LOG ========== -->
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock Text="Audit Log" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <Button Content="Clear Log" Click="ClearAuditLog_Click" VerticalAlignment="Center" />
+            </StackPanel>
+            <TextBlock Text="Records key actions for your records." Opacity="0.7" />
+            <ListView x:Name="AuditLogList" SelectionMode="None" IsItemClickEnabled="False" MaxHeight="300">
+                <ListView.HeaderTemplate>
+                    <DataTemplate>
+                        <Grid Padding="8,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140" />
+                                <ColumnDefinition Width="140" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Timestamp" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="1" Text="Action" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="2" Text="Detail" FontWeight="SemiBold" />
+                        </Grid>
+                    </DataTemplate>
+                </ListView.HeaderTemplate>
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Padding="8,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140" />
+                                <ColumnDefinition Width="140" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{Binding TimestampFormatted}" Opacity="0.7" />
+                            <TextBlock Grid.Column="1" Text="{Binding Action}" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="2" Text="{Binding Detail}" TextTrimming="CharacterEllipsis" />
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
 
         </StackPanel>
     </ScrollViewer>
