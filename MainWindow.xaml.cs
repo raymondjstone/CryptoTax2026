@@ -165,23 +165,9 @@ public sealed partial class MainWindow : Window
 
     private void RebuildTabs()
     {
-        // Remove old tax year tabs (keep Settings tab at index 0)
-        while (NavView.MenuItems.Count > 1)
-            NavView.MenuItems.RemoveAt(1);
-
-        foreach (var summary in _taxYearSummaries.OrderBy(s => s.StartYear))
-        {
-            var warningCount = summary.Warnings.Count(w => w.Level is WarningLevel.Warning or WarningLevel.Error);
-            var label = warningCount > 0 ? $"{summary.TaxYear} ({warningCount} issues)" : summary.TaxYear;
-
-            var item = new NavigationViewItem
-            {
-                Content = label,
-                Tag = summary.TaxYear,
-                Icon = new SymbolIcon(warningCount > 0 ? Symbol.Important : Symbol.Calculator)
-            };
-            NavView.MenuItems.Add(item);
-        }
+        // Remove dynamic tabs (keep Settings, Ledger, Delisted Assets at indices 0-2)
+        while (NavView.MenuItems.Count > 3)
+            NavView.MenuItems.RemoveAt(3);
 
         if (_taxYearSummaries.Count > 0)
         {
@@ -202,6 +188,21 @@ public sealed partial class MainWindow : Window
                 Icon = new SymbolIcon(Symbol.Globe)
             });
         }
+
+        // Tax year tabs last
+        foreach (var summary in _taxYearSummaries.OrderBy(s => s.StartYear))
+        {
+            var warningCount = summary.Warnings.Count(w => w.Level is WarningLevel.Warning or WarningLevel.Error);
+            var label = warningCount > 0 ? $"{summary.TaxYear} ({warningCount} issues)" : summary.TaxYear;
+
+            var item = new NavigationViewItem
+            {
+                Content = label,
+                Tag = summary.TaxYear,
+                Icon = new SymbolIcon(warningCount > 0 ? Symbol.Important : Symbol.Calculator)
+            };
+            NavView.MenuItems.Add(item);
+        }
     }
 
     private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
@@ -212,6 +213,14 @@ public sealed partial class MainWindow : Window
             if (tag == "Settings")
             {
                 ContentFrame.Navigate(typeof(SettingsPage), this);
+            }
+            else if (tag == "Ledger")
+            {
+                ContentFrame.Navigate(typeof(LedgerPage), this);
+            }
+            else if (tag == "DelistedAssets")
+            {
+                ContentFrame.Navigate(typeof(DelistedAssetsPage), this);
             }
             else if (tag == "PnLSummary")
             {
