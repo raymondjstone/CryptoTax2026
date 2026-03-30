@@ -448,14 +448,18 @@ public class CgtCalculationService
         // Includes staking, dividend, and reward types
         foreach (var stake in ledger.Where(e => e.Type is "staking" or "dividend" or "reward" or "airdrop" or "fork" or "mining" && e.Amount > 0))
         {
-            var gbpValue = _fxService.GetGbpValueOfAsset(stake.NormalisedAsset, stake.Amount, stake.DateTime);
+            // Kraken records gross reward as Amount; Fee is Kraken's commission (e.g. 20% for flexible staking).
+            // The user only receives Amount - Fee, so use the net figure for both quantity and income value.
+            var netStakeAmount = stake.Amount - stake.Fee;
+            if (netStakeAmount <= 0) continue;
+            var gbpValue = _fxService.GetGbpValueOfAsset(stake.NormalisedAsset, netStakeAmount, stake.DateTime);
             events.Add(new CgtEvent
             {
                 Date = stake.DateTime,
                 Asset = stake.NormalisedAsset,
                 IsAcquisition = true,
-                Quantity = stake.Amount,
-                Fee = stake.Fee,
+                Quantity = netStakeAmount,
+                Fee = 0,
                 GbpValue = gbpValue,
                 RefId = stake.RefId,
                 LedgerId = stake.LedgerId,
@@ -565,12 +569,15 @@ public class CgtCalculationService
             .GroupBy(e => e.NormalisedAsset, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var totalSpentCrypto = spentByCryptoAsset.Sum(g => g.Sum(e => Math.Abs(e.Amount)));
+        // Total crypto leaving per asset = |amount| + same-asset fee (fee deducted on top of the sold amount).
+        var totalSpentCrypto = spentByCryptoAsset.Sum(g => g.Sum(e => Math.Abs(e.Amount) + e.Fee));
 
         foreach (var assetGroup in spentByCryptoAsset)
         {
-            var qty = assetGroup.Sum(e => Math.Abs(e.Amount));
+            var grossQty = assetGroup.Sum(e => Math.Abs(e.Amount));
             var fee = assetGroup.Sum(e => e.Fee);
+            // Total crypto leaving the pool includes both the disposed amount and the same-asset fee.
+            var qty = grossQty + fee;
             var proportion = totalSpentCrypto > 0 ? qty / totalSpentCrypto : 1m;
 
             events.Add(new CgtEvent
@@ -597,9 +604,14 @@ public class CgtCalculationService
 
         foreach (var assetGroup in receivedByCryptoAsset)
         {
-            var qty = assetGroup.Sum(e => e.Amount);
+            var grossQty = assetGroup.Sum(e => e.Amount);
             var fee = assetGroup.Sum(e => e.Fee);
-            var proportion = totalReceivedCrypto > 0 ? qty / totalReceivedCrypto : 1m;
+            // Net quantity = gross amount minus any crypto-denominated fee (e.g. XRP fee on XRP buys).
+            // Kraken ledger: amount = gross received, fee = additionally deducted from that asset.
+            // The S104 pool must track net quantity (what actually lands in the account).
+            // Cost basis (GbpValue) still includes the fee as an allowable dealing cost.
+            var qty = grossQty - fee;
+            var proportion = totalReceivedCrypto > 0 ? grossQty / totalReceivedCrypto : 1m;
 
             events.Add(new CgtEvent
             {
@@ -619,18 +631,22 @@ public class CgtCalculationService
         foreach (var e in entries.Where(e => e.NormalisedAsset is "USDT" or "USDC" or "DAI"))
         {
             if (e.Amount > 0)
+                // Net received = gross amount minus same-asset fee.
+                // GbpValue (total cost) is computed on the gross amount and remains unchanged.
                 events.Add(new CgtEvent
                 {
                     Date = date, Asset = e.NormalisedAsset, IsAcquisition = true,
-                    Quantity = e.Amount, Fee = e.Fee,
+                    Quantity = e.Amount - e.Fee, Fee = e.Fee,
                     GbpValue = _fxService.ConvertToGbp(e.Amount, e.NormalisedAsset, date),
                     RefId = groupId, LedgerId = e.LedgerId, Type = "trade"
                 });
             else if (e.Amount < 0)
+                // Total leaving = disposed amount + same-asset fee.
+                // GbpValue (proceeds) is computed on the sold amount only and remains unchanged.
                 events.Add(new CgtEvent
                 {
                     Date = date, Asset = e.NormalisedAsset, IsAcquisition = false,
-                    Quantity = Math.Abs(e.Amount), Fee = e.Fee,
+                    Quantity = Math.Abs(e.Amount) + e.Fee, Fee = e.Fee,
                     GbpValue = _fxService.ConvertToGbp(Math.Abs(e.Amount), e.NormalisedAsset, date),
                     RefId = groupId, LedgerId = e.LedgerId, Type = "trade"
                 });
