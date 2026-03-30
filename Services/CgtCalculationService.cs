@@ -831,26 +831,37 @@ public class CgtCalculationService
 
                 if (poolQty > 0)
                 {
+                    // Snap to pool quantity when the shortfall is negligible (< 0.001 units).
+                    // Accumulated decimal rounding across many trades with crypto-denominated fees
+                    // can create tiny phantom shortfalls that aren't real missing data.
                     if (poolQty > pool.Quantity && pool.Quantity > 0)
                     {
-                        var historyLines = pool.History.Count > 0
-                            ? "\n  Pool contents (acquisitions into pool after same-day/B&B matching):\n" +
-                              string.Join("\n", pool.History.Select(h =>
-                                  $"    {h.Date:dd/MM/yyyy} | qty={h.Quantity:0.########} | cost=£{h.Cost:#,##0.00} | ref={h.RefId}"))
-                            : "";
-                        _warnings.Add(new CalculationWarning
+                        var shortfall = poolQty - pool.Quantity;
+                        if (shortfall < 0.001m)
                         {
-                            Level = WarningLevel.Warning,
-                            Category = "Pool",
-                            Message = $"Disposing {poolQty:0.########} {asset} but Section 104 pool only contains {pool.Quantity:0.########} " +
-                                      $"(pooled cost £{pool.PooledCost:#,##0.00}, avg £{pool.CostPerUnit:#,##0.########}/unit). " +
-                                      $"Shortfall: {poolQty - pool.Quantity:0.########} units. " +
-                                      $"This may indicate missing acquisition data (e.g. transfers from another exchange/wallet)." +
-                                      historyLines,
-                            Date = evt.Date,
-                            Asset = asset,
-                            LedgerId = evt.LedgerId
-                        });
+                            poolQty = pool.Quantity;
+                        }
+                        else
+                        {
+                            var historyLines = pool.History.Count > 0
+                                ? "\n  Pool contents (acquisitions into pool after same-day/B&B matching):\n" +
+                                  string.Join("\n", pool.History.Select(h =>
+                                      $"    {h.Date:dd/MM/yyyy} | qty={h.Quantity:0.########} | cost=£{h.Cost:#,##0.00} | ref={h.RefId}"))
+                                : "";
+                            _warnings.Add(new CalculationWarning
+                            {
+                                Level = WarningLevel.Warning,
+                                Category = "Pool",
+                                Message = $"Disposing {poolQty:0.########} {asset} but Section 104 pool only contains {pool.Quantity:0.########} " +
+                                          $"(pooled cost £{pool.PooledCost:#,##0.00}, avg £{pool.CostPerUnit:#,##0.########}/unit). " +
+                                          $"Shortfall: {shortfall:0.########} units. " +
+                                          $"This may indicate missing acquisition data (e.g. transfers from another exchange/wallet)." +
+                                          historyLines,
+                                Date = evt.Date,
+                                Asset = asset,
+                                LedgerId = evt.LedgerId
+                            });
+                        }
                     }
 
                     if (pool.Quantity <= 0)
