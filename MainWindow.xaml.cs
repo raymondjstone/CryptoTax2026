@@ -1,5 +1,7 @@
 using System;
+using System.Diagnostics;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -28,6 +30,7 @@ public sealed partial class MainWindow : Window
     private AppSettings _settings = new();
     private FxConversionService? _fxService;
     private Dictionary<string, Section104Pool> _finalPools = new();
+    private CgtCalculationService? _lastCgtService; // cached for lightweight summary-only recalculation
 
     private AppWindow _appWindow = null!;
 
@@ -57,6 +60,19 @@ public sealed partial class MainWindow : Window
         Content.KeyboardAccelerators.Add(CreateAccelerator(VirtualKey.Number9, VirtualKeyModifiers.Control, (_, _) => NavigateToTab(8)));
 
         LoadDataAsync();
+    }
+
+    private static void LogPerf(string message)
+    {
+        try
+        {
+            var line = $"{DateTimeOffset.Now:O} {message}";
+            Debug.WriteLine(line);
+            var perfPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CryptoTax2026", "perf.log");
+            Directory.CreateDirectory(Path.GetDirectoryName(perfPath)!);
+            File.AppendAllText(perfPath, line + Environment.NewLine);
+        }
+        catch { }
     }
 
     private async void LoadDataAsync()
@@ -120,11 +136,16 @@ public sealed partial class MainWindow : Window
     {
         if (_ledger.Count == 0) return;
 
+        var swTotal = Stopwatch.StartNew();
+
         _warnings = new List<CalculationWarning>();
 
         // Create FX service — constructor restores _pairMap, then load all cached files
         _fxService = new FxConversionService(_krakenService, _warnings);
+
+        var swFxLoad = Stopwatch.StartNew();
         _fxService.LoadAllFromDiskCache();
+        swFxLoad.Stop();
 
         var currencies = _ledger
             .Select(e => e.NormalisedAsset)
@@ -141,14 +162,37 @@ public sealed partial class MainWindow : Window
         // tax-year-end dates that go beyond the latest ledger entry.
         await _fxService.PreloadRatesAsync(currencies, earliest, progress, ct);
 
+        var swCalc = Stopwatch.StartNew();
+
         // Now recalculate with the loaded rates
         progress?.Report((0, "Calculating capital gains..."));
 
-        var cgtService = new CgtCalculationService(_fxService, _warnings, _trades, _settings.DelistedAssets, _settings.CostBasisOverrides);
-        _taxYearSummaries = cgtService.CalculateAllTaxYears(GetMergedLedger(), _settings.TaxYearInputs);
-        _finalPools = cgtService.FinalPools;
+        var fxService = _fxService;
+        var warnings = _warnings;
+        var trades = _trades;
+        var delistedAssets = _settings.DelistedAssets;
+        var costOverrides = _settings.CostBasisOverrides;
+        var mergedLedger = GetMergedLedger();
+        var userInputs = _settings.TaxYearInputs;
 
+        var (summaries, pools, cgtService) = await Task.Run(() =>
+        {
+            var svc = new CgtCalculationService(fxService, warnings, trades, delistedAssets, costOverrides);
+            var results = svc.CalculateAllTaxYears(mergedLedger, userInputs);
+            return (results, svc.FinalPools, svc);
+        });
+        swCalc.Stop();
+
+        _taxYearSummaries = summaries;
+        _finalPools = pools;
+        _lastCgtService = cgtService;
+
+        var swUi = Stopwatch.StartNew();
         RebuildTabs();
+        swUi.Stop();
+
+        swTotal.Stop();
+        LogPerf($"[PERF] DownloadFxRatesAndRecalculateAsync: FX disk load={swFxLoad.Elapsed}, CGT calc={swCalc.Elapsed}, UI rebuild={swUi.Elapsed}, total={swTotal.Elapsed}");
     }
 
     /// <summary>
@@ -157,20 +201,46 @@ public sealed partial class MainWindow : Window
     /// so LoadAllFromDiskCache picks up the correct files.
     /// If rates are missing or stale, the user can click "Download FX Rates".
     /// </summary>
-    private Task RecalculateWithCachedRatesAsync()
+    private async Task RecalculateWithCachedRatesAsync()
     {
-        if (_ledger.Count == 0) return Task.CompletedTask;
+        if (_ledger.Count == 0) return;
 
-        _warnings = new List<CalculationWarning>();
-        _fxService = new FxConversionService(_krakenService, _warnings);
-        _fxService.LoadAllFromDiskCache();
+        var swTotal = Stopwatch.StartNew();
 
-        var cgtService = new CgtCalculationService(_fxService, _warnings, _trades, _settings.DelistedAssets, _settings.CostBasisOverrides);
-        _taxYearSummaries = cgtService.CalculateAllTaxYears(GetMergedLedger(), _settings.TaxYearInputs);
-        _finalPools = cgtService.FinalPools;
+        var warnings = new List<CalculationWarning>();
+        var fxService = new FxConversionService(_krakenService, warnings);
 
+        var swFxLoad = Stopwatch.StartNew();
+        fxService.LoadAllFromDiskCache();
+        swFxLoad.Stop();
+
+        var trades = _trades;
+        var delistedAssets = _settings.DelistedAssets;
+        var costOverrides = _settings.CostBasisOverrides;
+        var mergedLedger = GetMergedLedger();
+        var userInputs = _settings.TaxYearInputs;
+
+        var swCalc = Stopwatch.StartNew();
+        var (summaries, pools, cgtService) = await Task.Run(() =>
+        {
+            var svc = new CgtCalculationService(fxService, warnings, trades, delistedAssets, costOverrides);
+            var results = svc.CalculateAllTaxYears(mergedLedger, userInputs);
+            return (results, svc.FinalPools, svc);
+        });
+        swCalc.Stop();
+
+        _fxService = fxService;
+        _warnings = warnings;
+        _taxYearSummaries = summaries;
+        _finalPools = pools;
+        _lastCgtService = cgtService;
+
+        var swUi = Stopwatch.StartNew();
         RebuildTabs();
-        return Task.CompletedTask;
+        swUi.Stop();
+
+        swTotal.Stop();
+        LogPerf($"[PERF] RecalculateWithCachedRatesAsync: FX disk load={swFxLoad.Elapsed}, CGT calc={swCalc.Elapsed}, UI rebuild={swUi.Elapsed}, total={swTotal.Elapsed}");
     }
 
     /// <summary>
@@ -181,14 +251,56 @@ public sealed partial class MainWindow : Window
     {
         if (_ledger.Count == 0 || _fxService == null) return;
 
-        _warnings = new List<CalculationWarning>();
+        var warnings = new List<CalculationWarning>();
+        var fxService = _fxService;
+        var trades = _trades;
+        var delistedAssets = _settings.DelistedAssets;
+        var costOverrides = _settings.CostBasisOverrides;
+        var mergedLedger = GetMergedLedger();
+        var userInputs = _settings.TaxYearInputs;
 
-        var cgtService = new CgtCalculationService(_fxService, _warnings, _trades, _settings.DelistedAssets, _settings.CostBasisOverrides);
-        _taxYearSummaries = cgtService.CalculateAllTaxYears(GetMergedLedger(), _settings.TaxYearInputs);
-        _finalPools = cgtService.FinalPools;
+        var (summaries, pools, cgtService) = await Task.Run(() =>
+        {
+            var svc = new CgtCalculationService(fxService, warnings, trades, delistedAssets, costOverrides);
+            var results = svc.CalculateAllTaxYears(mergedLedger, userInputs);
+            return (results, svc.FinalPools, svc);
+        });
+
+        _warnings = warnings;
+        _taxYearSummaries = summaries;
+        _finalPools = pools;
+        _lastCgtService = cgtService;
 
         RebuildTabs();
-        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Lightweight recalculation that only rebuilds tax year summaries (CGT amounts,
+    /// loss carry-forward) without redoing disposal matching or FX lookups.
+    /// Use when only taxable income or other capital gains change.
+    /// Falls back to full recalculation if no cached data is available.
+    /// </summary>
+    public async Task RecalculateSummariesOnlyAsync()
+    {
+        if (_lastCgtService == null)
+        {
+            await RecalculateAndBuildTabsAsync();
+            return;
+        }
+
+        var cgtService = _lastCgtService;
+        var userInputs = _settings.TaxYearInputs;
+
+        var summaries = await Task.Run(() => cgtService.RebuildSummariesOnly(userInputs));
+
+        if (summaries == null)
+        {
+            await RecalculateAndBuildTabsAsync();
+            return;
+        }
+
+        _taxYearSummaries = summaries;
+        // Pools and tabs don't change — just update the summaries
     }
 
     private void RebuildTabs()

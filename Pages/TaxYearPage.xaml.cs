@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.UI;
@@ -7,6 +9,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
+using Windows.Storage;
 using Windows.Storage.Pickers;
 using CryptoTax2026.Models;
 using CryptoTax2026.Services;
@@ -45,49 +48,70 @@ public sealed partial class TaxYearPage : Page
             // Build expensive ViewModels on a background thread so the spinner actually animates
             await Task.Run(() =>
             {
-                var ledgerByRefId = ledger.ToLookup(entry => entry.RefId);
+                var sw = Stopwatch.StartNew();
 
-                _allBnbDisposals = summary.Disposals
-                    .Where(d => d.MatchingRule.Contains("Bed", StringComparison.OrdinalIgnoreCase) ||
-                                d.MatchingRule.Contains("B&B", StringComparison.OrdinalIgnoreCase) ||
-                                d.MatchingRule.Contains("Breakfast", StringComparison.OrdinalIgnoreCase))
-                    .OrderBy(d => d.Date)
-                    .Select(d =>
-                    {
-                        var de = ledgerByRefId[d.TradeId]
-                            .OrderBy(x => x.DateTime)
-                            .Select(x => new BnbLedgerEntryViewModel(x))
-                            .ToList();
-                        var ae = string.IsNullOrEmpty(d.AcquisitionRefId)
-                            ? new List<BnbLedgerEntryViewModel>()
-                            : ledgerByRefId[d.AcquisitionRefId]
-                                .OrderBy(x => x.DateTime)
-                                .Select(x => new BnbLedgerEntryViewModel(x))
-                                .ToList();
-                        return new BnbDisposalViewModel(d, de, ae);
-                    })
+                // Pre-sort ledger entries once per refid. The previous implementation
+                // was re-sorting and re-materializing per disposal (very expensive for large years).
+                var sortedLedger = ledger
+                    .OrderBy(entry => entry.Time)
                     .ToList();
 
-                _allDisposals = summary.Disposals
+                var ledgerByRefId = sortedLedger
+                    .GroupBy(entry => entry.RefId)
+                    .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+
+                List<BnbLedgerEntryViewModel> GetEntries(string refId)
+                {
+                    if (string.IsNullOrEmpty(refId))
+                        return [];
+
+                    if (!ledgerByRefId.TryGetValue(refId, out var list) || list.Count == 0)
+                        return [];
+
+                    var vms = new List<BnbLedgerEntryViewModel>(list.Count);
+                    foreach (var x in list)
+                        vms.Add(new BnbLedgerEntryViewModel(x));
+                    return vms;
+                }
+
+                var orderedDisposals = summary.Disposals
                     .OrderBy(d => d.Date)
-                    .Select(d =>
-                    {
-                        var de = ledgerByRefId[d.TradeId]
-                            .OrderBy(x => x.DateTime)
-                            .Select(x => new BnbLedgerEntryViewModel(x))
-                            .ToList();
-                        var ae = string.IsNullOrEmpty(d.AcquisitionRefId)
-                            ? new List<BnbLedgerEntryViewModel>()
-                            : ledgerByRefId[d.AcquisitionRefId]
-                                .OrderBy(x => x.DateTime)
-                                .Select(x => new BnbLedgerEntryViewModel(x))
-                                .ToList();
-                        return new DisposalViewModel(d,
-                            costOverrides.ContainsKey(d.TradeId),
-                            allNotes.ContainsKey(d.TradeId),
-                            de, ae);
-                    })
                     .ToList();
+
+                _allBnbDisposals = new List<BnbDisposalViewModel>(Math.Min(orderedDisposals.Count, 128));
+                foreach (var d in orderedDisposals)
+                {
+                    if (!(d.MatchingRule.Contains("Bed", StringComparison.OrdinalIgnoreCase) ||
+                          d.MatchingRule.Contains("B&B", StringComparison.OrdinalIgnoreCase) ||
+                          d.MatchingRule.Contains("Breakfast", StringComparison.OrdinalIgnoreCase)))
+                        continue;
+
+                    var de = GetEntries(d.TradeId);
+                    var ae = GetEntries(d.AcquisitionRefId ?? "");
+                    _allBnbDisposals.Add(new BnbDisposalViewModel(d, de, ae));
+                }
+
+                _allDisposals = new List<DisposalViewModel>(orderedDisposals.Count);
+                foreach (var d in orderedDisposals)
+                {
+                    _allDisposals.Add(new DisposalViewModel(d,
+                        costOverrides.ContainsKey(d.TradeId),
+                        allNotes.ContainsKey(d.TradeId),
+                        GetEntries));
+                }
+
+                sw.Stop();
+                try
+                {
+                    var perfDir = ApplicationData.Current.LocalFolder.Path;
+                    var perfPath = Path.Combine(perfDir, "perf.log");
+                    File.AppendAllText(perfPath, $"{DateTimeOffset.Now:O} [PERF] TaxYearPage({_summary?.TaxYear}) VM build: disposals={summary.Disposals.Count}, ledger={ledger.Count}, took={sw.Elapsed} path={perfPath}" + Environment.NewLine);
+                    Debug.WriteLine($"[PERF] TaxYearPage wrote perf log: {perfPath}");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[PERF] TaxYearPage perf log write failed: {ex}");
+                }
             });
 
             // UI binding runs back on the UI thread
@@ -535,7 +559,7 @@ public sealed partial class TaxYearPage : Page
         EnsureUserInput().TaxableIncome = income;
 
         await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
-        await _mainWindow.RecalculateAndBuildTabsAsync();
+        await _mainWindow.RecalculateSummariesOnlyAsync();
 
         var updated = _mainWindow.TaxYearSummaries.FirstOrDefault(s => s.TaxYear == _summary.TaxYear);
         if (updated != null)
@@ -553,7 +577,7 @@ public sealed partial class TaxYearPage : Page
         EnsureUserInput().OtherCapitalGains = gains;
 
         await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
-        await _mainWindow.RecalculateAndBuildTabsAsync();
+        await _mainWindow.RecalculateSummariesOnlyAsync();
 
         var updated = _mainWindow.TaxYearSummaries.FirstOrDefault(s => s.TaxYear == _summary.TaxYear);
         if (updated != null)
@@ -1108,19 +1132,25 @@ public sealed partial class TaxYearPage : Page
 
 public class DisposalViewModel
 {
+    private static readonly SolidColorBrush GreenBrush = new(Colors.Green);
+    private static readonly SolidColorBrush RedBrush = new(Colors.Red);
+    private static readonly SolidColorBrush OrangeBrush = new(Colors.Orange);
+    private static readonly SolidColorBrush TransparentBrush = new(Microsoft.UI.Colors.White) { Opacity = 0 };
+
     private readonly DisposalRecord _record;
     private readonly bool _hasOverride;
     private readonly bool _hasNote;
+    private Func<string, List<BnbLedgerEntryViewModel>>? _entryResolver;
+    private List<BnbLedgerEntryViewModel>? _disposalEntries;
+    private List<BnbLedgerEntryViewModel>? _acquisitionEntries;
 
     public DisposalViewModel(DisposalRecord record, bool hasOverride = false, bool hasNote = false,
-        List<BnbLedgerEntryViewModel>? disposalEntries = null,
-        List<BnbLedgerEntryViewModel>? acquisitionEntries = null)
+        Func<string, List<BnbLedgerEntryViewModel>>? entryResolver = null)
     {
         _record = record;
         _hasOverride = hasOverride;
         _hasNote = hasNote;
-        DisposalEntries = disposalEntries ?? new List<BnbLedgerEntryViewModel>();
-        AcquisitionEntries = acquisitionEntries ?? new List<BnbLedgerEntryViewModel>();
+        _entryResolver = entryResolver;
     }
 
     public DisposalRecord Record => _record;
@@ -1131,22 +1161,45 @@ public class DisposalViewModel
     public string CostFormatted => _hasOverride ? $"{FormatGbp(_record.AllowableCost)} *" : FormatGbp(_record.AllowableCost);
     public string GainFormatted => FormatGbp(_record.GainOrLoss);
     public string MatchingRule => _record.MatchingRule;
-    public SolidColorBrush GainColor => _record.GainOrLoss >= 0
-        ? new SolidColorBrush(Colors.Green)
-        : new SolidColorBrush(Colors.Red);
-    public SolidColorBrush CostColor => _hasOverride
-        ? new SolidColorBrush(Colors.Orange)
-        : new SolidColorBrush(Microsoft.UI.Colors.White) { Opacity = 0 };
+    public SolidColorBrush GainColor => _record.GainOrLoss >= 0 ? GreenBrush : RedBrush;
+    public SolidColorBrush CostColor => _hasOverride ? OrangeBrush : TransparentBrush;
     public string NoteIndicator => _hasNote ? "[note]" : "";
 
-    public List<BnbLedgerEntryViewModel> DisposalEntries { get; }
-    public List<BnbLedgerEntryViewModel> AcquisitionEntries { get; }
-    public Visibility AcquisitionSectionVisibility => AcquisitionEntries.Count > 0
-        ? Visibility.Visible
-        : Visibility.Collapsed;
-    public string AcquisitionDateLabel => AcquisitionEntries.Count > 0
-        ? $"Reacquired on {AcquisitionEntries.Min(e => e.RawDateTime):dd/MM/yyyy}"
-        : "";
+    public List<BnbLedgerEntryViewModel> DisposalEntries
+    {
+        get
+        {
+            if (_disposalEntries == null)
+            {
+                _disposalEntries = _entryResolver?.Invoke(_record.TradeId) ?? [];
+            }
+            return _disposalEntries;
+        }
+    }
+
+    public List<BnbLedgerEntryViewModel> AcquisitionEntries
+    {
+        get
+        {
+            if (_acquisitionEntries == null)
+            {
+                _acquisitionEntries = _entryResolver?.Invoke(_record.AcquisitionRefId ?? "") ?? [];
+            }
+            return _acquisitionEntries;
+        }
+    }
+
+    public Visibility AcquisitionSectionVisibility =>
+        !string.IsNullOrEmpty(_record.AcquisitionRefId) ? Visibility.Visible : Visibility.Collapsed;
+    public string AcquisitionDateLabel
+    {
+        get
+        {
+            if (AcquisitionEntries.Count > 0)
+                return $"Reacquired on {AcquisitionEntries.Min(e => e.RawDateTime):dd/MM/yyyy}";
+            return "";
+        }
+    }
 
     private static string FormatGbp(decimal amount)
     {
@@ -1156,6 +1209,10 @@ public class DisposalViewModel
 
 public class WarningViewModel
 {
+    private static readonly SolidColorBrush RedBrush = new(Colors.Red);
+    private static readonly SolidColorBrush OrangeBrush = new(Colors.Orange);
+    private static readonly SolidColorBrush GrayBrush = new(Colors.Gray);
+
     private readonly CalculationWarning _warning;
 
     public WarningViewModel(CalculationWarning warning) => _warning = warning;
@@ -1166,9 +1223,9 @@ public class WarningViewModel
     public string Message => _warning.Message;
     public SolidColorBrush LevelColor => _warning.Level switch
     {
-        WarningLevel.Error => new SolidColorBrush(Colors.Red),
-        WarningLevel.Warning => new SolidColorBrush(Colors.Orange),
-        _ => new SolidColorBrush(Colors.Gray)
+        WarningLevel.Error => RedBrush,
+        WarningLevel.Warning => OrangeBrush,
+        _ => GrayBrush
     };
 }
 
@@ -1276,6 +1333,9 @@ public class BnbLedgerEntryViewModel
 
 public class BnbDisposalViewModel
 {
+    private static readonly SolidColorBrush GreenBrush = new(Colors.Green);
+    private static readonly SolidColorBrush RedBrush = new(Colors.Red);
+
     private readonly DisposalRecord _record;
 
     public BnbDisposalViewModel(DisposalRecord record,
@@ -1293,9 +1353,7 @@ public class BnbDisposalViewModel
     public string ProceedsFormatted => FormatGbp(_record.DisposalProceeds);
     public string CostFormatted => FormatGbp(_record.AllowableCost);
     public string GainFormatted => FormatGbp(_record.GainOrLoss);
-    public SolidColorBrush GainColor => _record.GainOrLoss >= 0
-        ? new SolidColorBrush(Colors.Green)
-        : new SolidColorBrush(Colors.Red);
+    public SolidColorBrush GainColor => _record.GainOrLoss >= 0 ? GreenBrush : RedBrush;
 
     public List<BnbLedgerEntryViewModel> DisposalEntries { get; }
     public List<BnbLedgerEntryViewModel> AcquisitionEntries { get; }

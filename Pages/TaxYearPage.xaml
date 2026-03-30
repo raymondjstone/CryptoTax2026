@@ -869,11 +869,11 @@
                         <TextBlock Text="Individual Disposals" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
                         <Button Grid.Column="1" Content="Export HMRC Schedule" Click="ExportHmrcSchedule_Click"
                                 VerticalAlignment="Center" Margin="0,0,8,0" />
-                        <Button x:Name="DisposalsCollapseBtn" Grid.Column="2" Content="▲" Click="DisposalsCollapse_Click" Padding="8,4" />
+                        <Button x:Name="DisposalsCollapseBtn" Grid.Column="2" Content="▼" Click="DisposalsCollapse_Click" Padding="8,4" />
                     </Grid>
 
                     <!-- Collapsible content -->
-                    <StackPanel x:Name="DisposalsContent" Spacing="8">
+                    <StackPanel x:Name="DisposalsContent" Spacing="8" Visibility="Collapsed">
                         <TextBlock Text="Each row is a disposal event matched using HMRC rules (same-day, bed &amp; breakfast 30-day, then Section 104 pool). Expand a row to see the underlying Kraken ledger entries."
                                    TextWrapping="Wrap" Opacity="0.7" />
 

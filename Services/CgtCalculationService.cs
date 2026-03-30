@@ -18,6 +18,12 @@ public class CgtCalculationService
     /// </summary>
     public Dictionary<string, Section104Pool> FinalPools { get; private set; } = new();
 
+    // Cached intermediate results from the last full calculation.
+    // Used by RebuildSummariesOnly to avoid redoing the expensive work.
+    private List<DisposalRecord>? _cachedDisposals;
+    private List<KrakenLedgerEntry>? _cachedStakingEntries;
+    private Dictionary<string, (BalanceSnapshot Start, BalanceSnapshot End)>? _cachedSnapshots;
+
     public CgtCalculationService(FxConversionService fxService, List<CalculationWarning> warnings, List<KrakenTrade>? trades = null, List<DelistedAssetEvent>? delistedAssets = null, Dictionary<string, decimal>? costBasisOverrides = null)
     {
         _fxService = fxService;
@@ -101,8 +107,27 @@ public class CgtCalculationService
         // assets don't show phantom balances after delisting)
         var snapshots = ComputeBalanceSnapshots(effectiveLedger);
 
+        // Cache intermediate results for lightweight summary-only recalculation
+        _cachedDisposals = disposals;
+        _cachedStakingEntries = stakingEntries;
+        _cachedSnapshots = snapshots;
+
         // Group by tax year and build summaries
         return BuildTaxYearSummaries(disposals, stakingEntries, userInputs, snapshots);
+    }
+
+    /// <summary>
+    /// Lightweight recalculation that reuses cached disposals, staking entries, and balance
+    /// snapshots from the last full <see cref="CalculateAllTaxYears"/> run. Only rebuilds the
+    /// tax year summaries (CGT amounts, loss carry-forward). Use when only user inputs
+    /// (taxable income, other capital gains) change — no need to redo disposal matching or FX lookups.
+    /// </summary>
+    public List<TaxYearSummary>? RebuildSummariesOnly(Dictionary<string, TaxYearUserInput> userInputs)
+    {
+        if (_cachedDisposals == null || _cachedStakingEntries == null || _cachedSnapshots == null)
+            return null; // No cached data — caller should do a full recalculation
+
+        return BuildTaxYearSummaries(_cachedDisposals, _cachedStakingEntries, userInputs, _cachedSnapshots);
     }
 
     /// <summary>
@@ -212,7 +237,9 @@ public class CgtCalculationService
 
     private List<CgtEvent> BuildEventsFromLedger(List<KrakenLedgerEntry> ledger)
     {
-        var events = new List<CgtEvent>();
+        // Heuristic: most ledger entries do not become CGT events (transfers etc.),
+        // but using ledger.Count is a safe upper bound and avoids repeated resizing.
+        var events = new List<CgtEvent>(ledger.Count);
 
         // Group ledger entries by refid — a trade will have 2+ entries with the same refid
         // (e.g., -0.5 ETH and +500 GBP for selling ETH)
@@ -248,9 +275,15 @@ public class CgtCalculationService
                 g => g.Select(t => t.TradeId).ToHashSet(StringComparer.OrdinalIgnoreCase),
                 StringComparer.OrdinalIgnoreCase);
 
+        // Pre-built lookup of ALL non-transfer, non-staking-transfer entries by refid.
+        // Used by the fallback paths below instead of scanning the full ledger each time.
+        var allByRefId = ledger
+            .Where(e => e.Type != "transfer" && !StakingTransferSubtypes.Contains(e.SubType))
+            .ToLookup(e => e.RefId, StringComparer.OrdinalIgnoreCase);
+
         // Pre-pass: find refids that need order-level grouping and build combined entry sets.
         var refIdsHandledAtOrderLevel = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var orderLevelGroups = new List<(string OrderId, List<KrakenLedgerEntry> Entries)>();
+        var orderLevelGroups = new List<(string OrderId, List<KrakenLedgerEntry> Entries)>(Math.Min(filteredByRefId.Count, ledger.Count));
 
         foreach (var (refId, refEntries) in filteredByRefId)
         {
@@ -259,9 +292,7 @@ public class CgtCalculationService
             // Check full ledger (all types) for this refid before escalating to order-level.
             // Exclude type="transfer" — staking moves (POL→POL.F etc.) share refids and must not
             // be treated as trade legs.
-            var fullLegs = ledger
-                .Where(e => e.RefId == refId && e.Type != "transfer" && !StakingTransferSubtypes.Contains(e.SubType))
-                .ToList();
+            var fullLegs = allByRefId[refId].ToList();
             if (fullLegs.Count >= 2) continue; // resolved by full-ledger search
 
             // Single-entry fill — look up which order it belongs to
@@ -279,7 +310,7 @@ public class CgtCalculationService
                 .SelectMany(id =>
                     filteredByRefId.TryGetValue(id, out var l)
                         ? l
-                        : ledger.Where(e => e.RefId == id && e.Type != "transfer" && !StakingTransferSubtypes.Contains(e.SubType)))
+                        : allByRefId[id])
                 .OrderBy(e => e.Time)
                 .ToList();
 
@@ -306,10 +337,7 @@ public class CgtCalculationService
                 // The other leg may have a different type (e.g. adjustment, conversion).
                 // Search the full ledger for any entry with the same refid.
                 // Exclude type="transfer" — staking moves must not be treated as trade legs.
-                var allLegs = ledger
-                    .Where(e => e.RefId == refId && e.Type != "transfer" && !StakingTransferSubtypes.Contains(e.SubType))
-                    .OrderBy(e => e.Time)
-                    .ToList();
+                var allLegs = allByRefId[refId].OrderBy(e => e.Time).ToList();
 
                 if (allLegs.Count >= 2)
                     entryList = allLegs;
@@ -667,6 +695,18 @@ public class CgtCalculationService
             RemainingQty = a.Quantity
         }).ToList();
 
+        // Index acquisitions by normalised asset for O(1) lookup instead of O(n) per disposal
+        var acqByAsset = new Dictionary<string, List<AcqRemaining>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var ra in remainingAcq)
+        {
+            if (!acqByAsset.TryGetValue(ra.Event.Asset, out var list))
+            {
+                list = new List<AcqRemaining>();
+                acqByAsset[ra.Event.Asset] = list;
+            }
+            list.Add(ra);
+        }
+
         // Section 104 pools per asset
         var pools = new Dictionary<string, Section104Pool>(StringComparer.OrdinalIgnoreCase);
 
@@ -677,12 +717,14 @@ public class CgtCalculationService
             var remainingQty = disposal.Quantity;
             var disposalDate = disposal.Date.Date;
 
+            if (!acqByAsset.TryGetValue(asset, out var assetAcqs))
+                assetAcqs = null;
+
             // === RULE 1: Same-day matching ===
-            var sameDayAcqs = remainingAcq
-                .Where(a => a.Event.Asset.Equals(asset, StringComparison.OrdinalIgnoreCase)
-                         && a.Event.Date.Date == disposalDate
+            var sameDayAcqs = assetAcqs?
+                .Where(a => a.Event.Date.Date == disposalDate
                          && a.RemainingQty > 0)
-                .ToList();
+                .ToList() ?? [];
 
             foreach (var acq in sameDayAcqs)
             {
@@ -713,13 +755,12 @@ public class CgtCalculationService
             // === RULE 2: Bed & Breakfast (30-day) rule ===
             if (remainingQty > 0)
             {
-                var bnbAcqs = remainingAcq
-                    .Where(a => a.Event.Asset.Equals(asset, StringComparison.OrdinalIgnoreCase)
-                             && a.Event.Date.Date > disposalDate
+                var bnbAcqs = assetAcqs?
+                    .Where(a => a.Event.Date.Date > disposalDate
                              && a.Event.Date.Date <= disposalDate.AddDays(30)
                              && a.RemainingQty > 0)
                     .OrderBy(a => a.Event.Date)
-                    .ToList();
+                    .ToList() ?? [];
 
                 foreach (var acq in bnbAcqs)
                 {
@@ -949,30 +990,15 @@ public class CgtCalculationService
             {
                 Label = $"Start of {taxYearLabel}",
                 Date = startBoundary,
-                Balances = startBalances
-                    .Where(kv => kv.Value > 0.00000001m)
-                    .OrderByDescending(kv => _fxService.GetGbpValueOfAsset(kv.Key, kv.Value, startBoundary))
-                    .Select(kv => new AssetBalance
-                    {
-                        Asset = kv.Key,
-                        Quantity = kv.Value,
-                        GbpValue = _fxService.GetGbpValueOfAsset(kv.Key, kv.Value, startBoundary)
-                    }).ToList()
+                Balances = BuildBalanceList(startBalances, startBoundary)
             };
 
+            var endDate = endBoundary.AddDays(-1); // 5 April
             var endSnapshot = new BalanceSnapshot
             {
                 Label = $"End of {taxYearLabel}",
-                Date = endBoundary.AddDays(-1), // 5 April
-                Balances = endBalances
-                    .Where(kv => kv.Value > 0.00000001m)
-                    .OrderByDescending(kv => _fxService.GetGbpValueOfAsset(kv.Key, kv.Value, endBoundary.AddDays(-1)))
-                    .Select(kv => new AssetBalance
-                    {
-                        Asset = kv.Key,
-                        Quantity = kv.Value,
-                        GbpValue = _fxService.GetGbpValueOfAsset(kv.Key, kv.Value, endBoundary.AddDays(-1))
-                    }).ToList()
+                Date = endDate,
+                Balances = BuildBalanceList(endBalances, endDate)
             };
 
             result[taxYearLabel] = (startSnapshot, endSnapshot);
@@ -993,15 +1019,7 @@ public class CgtCalculationService
                 {
                     Label = $"Start of {lastLabel}",
                     Date = lastBoundary,
-                    Balances = startBalances
-                        .Where(kv => kv.Value > 0.00000001m)
-                        .OrderByDescending(kv => _fxService.GetGbpValueOfAsset(kv.Key, kv.Value, lastBoundary))
-                        .Select(kv => new AssetBalance
-                        {
-                            Asset = kv.Key,
-                            Quantity = kv.Value,
-                            GbpValue = _fxService.GetGbpValueOfAsset(kv.Key, kv.Value, lastBoundary)
-                        }).ToList()
+                    Balances = BuildBalanceList(startBalances, lastBoundary)
                 };
 
                 // End = current balances (latest data point)
@@ -1009,15 +1027,7 @@ public class CgtCalculationService
                 {
                     Label = $"End of {lastLabel} (latest data)",
                     Date = latest,
-                    Balances = balances
-                        .Where(kv => kv.Value > 0.00000001m)
-                        .OrderByDescending(kv => _fxService.GetGbpValueOfAsset(kv.Key, kv.Value, latest))
-                        .Select(kv => new AssetBalance
-                        {
-                            Asset = kv.Key,
-                            Quantity = kv.Value,
-                            GbpValue = _fxService.GetGbpValueOfAsset(kv.Key, kv.Value, latest)
-                        }).ToList()
+                    Balances = BuildBalanceList(balances, latest)
                 };
 
                 result[lastLabel] = (startSnapshot, endSnapshot);
@@ -1025,6 +1035,22 @@ public class CgtCalculationService
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Builds a list of AssetBalance from raw balances, calling GetGbpValueOfAsset only once per asset.
+    /// </summary>
+    private List<AssetBalance> BuildBalanceList(Dictionary<string, decimal> rawBalances, DateTimeOffset date)
+    {
+        return rawBalances
+            .Where(kv => kv.Value > 0.00000001m)
+            .Select(kv =>
+            {
+                var gbp = _fxService.GetGbpValueOfAsset(kv.Key, kv.Value, date);
+                return new AssetBalance { Asset = kv.Key, Quantity = kv.Value, GbpValue = gbp };
+            })
+            .OrderByDescending(ab => ab.GbpValue)
+            .ToList();
     }
 
     private List<TaxYearSummary> BuildTaxYearSummaries(

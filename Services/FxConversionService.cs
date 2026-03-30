@@ -874,21 +874,31 @@ public class FxConversionService
             var entries = JsonSerializer.Deserialize<Dictionary<string, decimal>>(json);
             if (entries == null || entries.Count == 0) return false;
 
-            var rates = new SortedList<long, decimal>();
+            // Parse all entries into a list first, then sort by timestamp.
+            // SortedList uses a sorted array internally — inserting in random order
+            // is O(n) per insert (binary search + element shifting) → O(n²) total.
+            // Sorting first ensures ascending-order inserts (end-appends, no shifting).
+            var parsed = new List<KeyValuePair<long, decimal>>(entries.Count);
             foreach (var (key, rate) in entries)
             {
                 if (long.TryParse(key, out var ts))
                 {
-                    rates[ts] = rate;
+                    parsed.Add(new(ts, rate));
                 }
                 else if (DateOnly.TryParse(key, out var date))
                 {
                     var dto = new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
-                    rates[dto.ToUnixTimeSeconds()] = rate;
+                    parsed.Add(new(dto.ToUnixTimeSeconds(), rate));
                 }
             }
 
-            if (rates.Count == 0) return false;
+            if (parsed.Count == 0) return false;
+
+            parsed.Sort((a, b) => a.Key.CompareTo(b.Key));
+
+            var rates = new SortedList<long, decimal>(parsed.Count);
+            foreach (var kv in parsed)
+                rates[kv.Key] = kv.Value;
 
             _rateCache[cacheKey] = rates;
 

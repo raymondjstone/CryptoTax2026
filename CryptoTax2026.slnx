@@ -4,6 +4,9 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
+  <Project Path="../CryptoTax2026.Tests/CryptoTax2026.Tests.csproj">
+    <Platform Project="x64" />
+  </Project>
   <Project Path="CryptoTax2026.csproj">
     <Platform Solution="*|ARM64" Project="ARM64" />
     <Platform Solution="*|x64" Project="x64" />

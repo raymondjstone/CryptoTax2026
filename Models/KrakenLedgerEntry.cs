@@ -5,6 +5,21 @@ namespace CryptoTax2026.Models;
 
 public class KrakenLedgerEntry
 {
+    private static readonly System.Collections.Generic.Dictionary<string, string> AssetMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["XXBT"] = "BTC", ["XBT"] = "BTC",
+        ["XETH"] = "ETH", ["XLTC"] = "LTC",
+        ["XXRP"] = "XRP", ["XXLM"] = "XLM",
+        ["XXDG"] = "DOGE", ["XZEC"] = "ZEC",
+        ["XMLN"] = "MLN", ["XXMR"] = "XMR",
+        ["XREP"] = "REP", ["XETC"] = "ETC",
+        ["ZGBP"] = "GBP", ["ZUSD"] = "USD",
+        ["ZEUR"] = "EUR", ["ZJPY"] = "JPY",
+        ["ZCAD"] = "CAD", ["ZAUD"] = "AUD",
+        // Staked variants
+        ["ETH2"] = "ETH", ["ETH2.S"] = "ETH",
+    };
+
     [JsonPropertyName("refid")]
     public string RefId { get; set; } = "";
 
@@ -49,22 +64,7 @@ public class KrakenLedgerEntry
     public static string NormaliseAssetName(string asset)
     {
         // Kraken prefixes: X for crypto, Z for fiat (legacy), plus some special names
-        var map = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["XXBT"] = "BTC", ["XBT"] = "BTC",
-            ["XETH"] = "ETH", ["XLTC"] = "LTC",
-            ["XXRP"] = "XRP", ["XXLM"] = "XLM",
-            ["XXDG"] = "DOGE", ["XZEC"] = "ZEC",
-            ["XMLN"] = "MLN", ["XXMR"] = "XMR",
-            ["XREP"] = "REP", ["XETC"] = "ETC",
-            ["ZGBP"] = "GBP", ["ZUSD"] = "USD",
-            ["ZEUR"] = "EUR", ["ZJPY"] = "JPY",
-            ["ZCAD"] = "CAD", ["ZAUD"] = "AUD",
-            // Staked variants
-            ["ETH2"] = "ETH", ["ETH2.S"] = "ETH",
-        };
-
-        if (map.TryGetValue(asset, out var mapped))
+        if (AssetMap.TryGetValue(asset, out var mapped))
             return mapped;
 
         // Handle Kraken suffixes for staking/bonding/margin/parachain variants:
