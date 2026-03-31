@@ -71,4 +71,47 @@
     <PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
     <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
   </PropertyGroup>
+
+  <!--
+    Auto-increment version on publish. Reads the current version from Package.appxmanifest,
+    bumps the build (third) component, and writes it back. Also sets AssemblyVersion/FileVersion
+    so the DLL and MSIX package stay in sync. Runs early in the build before packaging.
+  -->
+  <Target Name="AutoIncrementVersion" BeforeTargets="PrepareForBuild;GenerateAppxManifest" Condition="'$(GenerateAppxPackageOnBuild)' == 'true'">
+    <PropertyGroup>
+      <_ManifestPath>$(MSBuildProjectDirectory)\Package.appxmanifest</_ManifestPath>
+    </PropertyGroup>
+
+    <!-- Read current version from manifest -->
+    <XmlPeek XmlInputPath="$(_ManifestPath)"
+             Query="/m:Package/m:Identity/@Version"
+             Namespaces="&lt;Namespace Prefix='m' Uri='http://schemas.microsoft.com/appx/manifest/foundation/windows10' /&gt;">
+      <Output TaskParameter="Result" ItemName="_CurrentVersion" />
+    </XmlPeek>
+
+    <!-- Parse and bump build number -->
+    <PropertyGroup>
+      <_VersionStr>@(_CurrentVersion)</_VersionStr>
+      <_Major>$(_VersionStr.Split('.')[0])</_Major>
+      <_Minor>$(_VersionStr.Split('.')[1])</_Minor>
+      <_Build>$(_VersionStr.Split('.')[2])</_Build>
+      <_NewBuild>$([MSBuild]::Add($(_Build), 1))</_NewBuild>
+      <_NewVersion>$(_Major).$(_Minor).$(_NewBuild).0</_NewVersion>
+    </PropertyGroup>
+
+    <!-- Write new version back to manifest -->
+    <XmlPoke XmlInputPath="$(_ManifestPath)"
+             Query="/m:Package/m:Identity/@Version"
+             Value="$(_NewVersion)"
+             Namespaces="&lt;Namespace Prefix='m' Uri='http://schemas.microsoft.com/appx/manifest/foundation/windows10' /&gt;" />
+
+    <!-- Sync assembly/file version -->
+    <PropertyGroup>
+      <AssemblyVersion>$(_NewVersion)</AssemblyVersion>
+      <FileVersion>$(_NewVersion)</FileVersion>
+      <Version>$(_NewVersion)</Version>
+    </PropertyGroup>
+
+    <Message Importance="High" Text="Version auto-incremented: $(_VersionStr) -> $(_NewVersion)" />
+  </Target>
 </Project>

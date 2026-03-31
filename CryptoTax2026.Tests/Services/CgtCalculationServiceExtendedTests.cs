@@ -719,4 +719,354 @@ public class CgtCalculationServiceExtendedTests
 
         Assert.Contains(warnings, w => w.Category == "Pool" && w.Level == WarningLevel.Warning);
     }
+
+    // ========== GBP Fee Direction (Buy vs Sell) ==========
+
+    [Fact]
+    public void GbpFeeOnBuy_IncreasesAcquisitionCost()
+    {
+        var warnings = new List<CalculationWarning>();
+        var fx = TestFxHelper.CreateWithDefaultRates(warnings);
+        var calc = new CgtCalculationService(fx, warnings);
+
+        // Buy 1 ETH for 1000 GBP with £10 GBP fee → total cost should be 1010
+        var buyTime = new DateTimeOffset(2023, 6, 1, 10, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+        var ledger = new List<KrakenLedgerEntry>
+        {
+            new()
+            {
+                RefId = "BUY-FEE", Time = buyTime, Type = "trade",
+                Asset = "ZGBP", AmountStr = "-1000", FeeStr = "10",
+                LedgerId = "L-1", NormalisedAsset = "GBP"
+            },
+            new()
+            {
+                RefId = "BUY-FEE", Time = buyTime, Type = "trade",
+                Asset = "XETH", AmountStr = "1", FeeStr = "0",
+                LedgerId = "L-2", NormalisedAsset = "ETH"
+            }
+        };
+
+        // Sell 1 ETH for 1500 GBP (no fee) → gain should be 1500 - 1010 = 490
+        var sellTime = new DateTimeOffset(2023, 9, 1, 10, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+        ledger.Add(new KrakenLedgerEntry
+        {
+            RefId = "SELL-1", Time = sellTime, Type = "trade",
+            Asset = "XETH", AmountStr = "-1", FeeStr = "0",
+            LedgerId = "L-3", NormalisedAsset = "ETH"
+        });
+        ledger.Add(new KrakenLedgerEntry
+        {
+            RefId = "SELL-1", Time = sellTime, Type = "trade",
+            Asset = "ZGBP", AmountStr = "1500", FeeStr = "0",
+            LedgerId = "L-4", NormalisedAsset = "GBP"
+        });
+
+        var results = calc.CalculateAllTaxYears(ledger, new Dictionary<string, TaxYearUserInput>());
+
+        var disposal = results.SelectMany(r => r.Disposals).First(d => d.Asset == "ETH");
+        Assert.Equal(1500m, disposal.DisposalProceeds);
+        Assert.Equal(1010m, disposal.AllowableCost); // 1000 + 10 fee
+        Assert.Equal(490m, disposal.GainOrLoss);
+    }
+
+    [Fact]
+    public void GbpFeeOnSell_ReducesDisposalProceeds()
+    {
+        var warnings = new List<CalculationWarning>();
+        var fx = TestFxHelper.CreateWithDefaultRates(warnings);
+        var calc = new CgtCalculationService(fx, warnings);
+
+        // Buy 1 ETH for 1000 GBP (no fee)
+        var ledger = new LedgerBuilder()
+            .AddTrade(
+                new DateTimeOffset(2023, 6, 1, 10, 0, 0, TimeSpan.Zero),
+                "GBP", 1000m, "ETH", 1m)
+            .Build();
+
+        // Sell 1 ETH for 1500 GBP with £10 GBP fee → proceeds = 1490
+        var sellTime = new DateTimeOffset(2023, 9, 1, 10, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+        ledger.Add(new KrakenLedgerEntry
+        {
+            RefId = "SELL-FEE", Time = sellTime, Type = "trade",
+            Asset = "XETH", AmountStr = "-1", FeeStr = "0",
+            LedgerId = "L-5", NormalisedAsset = "ETH"
+        });
+        ledger.Add(new KrakenLedgerEntry
+        {
+            RefId = "SELL-FEE", Time = sellTime, Type = "trade",
+            Asset = "ZGBP", AmountStr = "1500", FeeStr = "10",
+            LedgerId = "L-6", NormalisedAsset = "GBP"
+        });
+
+        var results = calc.CalculateAllTaxYears(ledger, new Dictionary<string, TaxYearUserInput>());
+
+        var disposal = results.SelectMany(r => r.Disposals).First(d => d.Asset == "ETH");
+        Assert.Equal(1490m, disposal.DisposalProceeds); // 1500 - 10 fee
+        Assert.Equal(1000m, disposal.AllowableCost);
+        Assert.Equal(490m, disposal.GainOrLoss);
+    }
+
+    [Fact]
+    public void GbpFeeOnBothSides_BuyAndSell_CorrectGain()
+    {
+        var warnings = new List<CalculationWarning>();
+        var fx = TestFxHelper.CreateWithDefaultRates(warnings);
+        var calc = new CgtCalculationService(fx, warnings);
+
+        // Buy 1 ETH for 1000 GBP with £10 fee → cost = 1010
+        var buyTime = new DateTimeOffset(2023, 6, 1, 10, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+        var ledger = new List<KrakenLedgerEntry>
+        {
+            new()
+            {
+                RefId = "BUY-1", Time = buyTime, Type = "trade",
+                Asset = "ZGBP", AmountStr = "-1000", FeeStr = "10",
+                LedgerId = "L-1", NormalisedAsset = "GBP"
+            },
+            new()
+            {
+                RefId = "BUY-1", Time = buyTime, Type = "trade",
+                Asset = "XETH", AmountStr = "1", FeeStr = "0",
+                LedgerId = "L-2", NormalisedAsset = "ETH"
+            }
+        };
+
+        // Sell 1 ETH for 1500 GBP with £15 fee → proceeds = 1485
+        var sellTime = new DateTimeOffset(2023, 9, 1, 10, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+        ledger.Add(new KrakenLedgerEntry
+        {
+            RefId = "SELL-1", Time = sellTime, Type = "trade",
+            Asset = "XETH", AmountStr = "-1", FeeStr = "0",
+            LedgerId = "L-3", NormalisedAsset = "ETH"
+        });
+        ledger.Add(new KrakenLedgerEntry
+        {
+            RefId = "SELL-1", Time = sellTime, Type = "trade",
+            Asset = "ZGBP", AmountStr = "1500", FeeStr = "15",
+            LedgerId = "L-4", NormalisedAsset = "GBP"
+        });
+
+        var results = calc.CalculateAllTaxYears(ledger, new Dictionary<string, TaxYearUserInput>());
+
+        var disposal = results.SelectMany(r => r.Disposals).First(d => d.Asset == "ETH");
+        Assert.Equal(1485m, disposal.DisposalProceeds); // 1500 - 15
+        Assert.Equal(1010m, disposal.AllowableCost);    // 1000 + 10
+        Assert.Equal(475m, disposal.GainOrLoss);
+    }
+
+    // ========== Fiat (USD/EUR) Fee Direction ==========
+
+    [Fact]
+    public void UsdFeeOnBuy_IncreasesAcquisitionCost()
+    {
+        var warnings = new List<CalculationWarning>();
+        var fx = TestFxHelper.CreateWithDefaultRates(warnings);
+        var calc = new CgtCalculationService(fx, warnings);
+
+        // Buy 1 ETH for 1250 USD with $10 USD fee
+        // USD->GBP rate = 0.80, so total cost = (1250 + 10) * 0.80 = £1008
+        var buyTime = new DateTimeOffset(2023, 6, 1, 10, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+        var ledger = new List<KrakenLedgerEntry>
+        {
+            new()
+            {
+                RefId = "USD-BUY", Time = buyTime, Type = "trade",
+                Asset = "ZUSD", AmountStr = "-1250", FeeStr = "10",
+                LedgerId = "L-1", NormalisedAsset = "USD"
+            },
+            new()
+            {
+                RefId = "USD-BUY", Time = buyTime, Type = "trade",
+                Asset = "XETH", AmountStr = "1", FeeStr = "0",
+                LedgerId = "L-2", NormalisedAsset = "ETH"
+            }
+        };
+
+        // Sell 1 ETH for 2000 GBP (no fee)
+        ledger.AddRange(new LedgerBuilder()
+            .AddTrade(
+                new DateTimeOffset(2023, 9, 1, 10, 0, 0, TimeSpan.Zero),
+                "ETH", 1m, "GBP", 2000m)
+            .Build());
+
+        var results = calc.CalculateAllTaxYears(ledger, new Dictionary<string, TaxYearUserInput>());
+
+        var disposal = results.SelectMany(r => r.Disposals).First(d => d.Asset == "ETH");
+        Assert.Equal(2000m, disposal.DisposalProceeds);
+        Assert.Equal(1008m, disposal.AllowableCost); // (1250 + 10) * 0.80
+        Assert.Equal(992m, disposal.GainOrLoss);
+    }
+
+    // ========== Combined GBP + Crypto Fee ==========
+
+    [Fact]
+    public void GbpFeeAndCryptoFee_BothIncludedInCostBasis()
+    {
+        var warnings = new List<CalculationWarning>();
+        var fx = TestFxHelper.CreateWithDefaultRates(warnings);
+        var calc = new CgtCalculationService(fx, warnings);
+
+        // Buy 1 ETH for 1000 GBP with £10 GBP fee AND 0.01 ETH crypto fee
+        // Cost basis = 1010 (GBP) + 20 (0.01 ETH * £2000) = 1030
+        // Net acquired = 0.99 ETH
+        var buyTime = new DateTimeOffset(2023, 6, 1, 10, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+        var ledger = new List<KrakenLedgerEntry>
+        {
+            new()
+            {
+                RefId = "DUAL-FEE", Time = buyTime, Type = "trade",
+                Asset = "ZGBP", AmountStr = "-1000", FeeStr = "10",
+                LedgerId = "L-1", NormalisedAsset = "GBP"
+            },
+            new()
+            {
+                RefId = "DUAL-FEE", Time = buyTime, Type = "trade",
+                Asset = "XETH", AmountStr = "1", FeeStr = "0.01",
+                LedgerId = "L-2", NormalisedAsset = "ETH"
+            }
+        };
+
+        calc.CalculateAllTaxYears(ledger, new Dictionary<string, TaxYearUserInput>());
+
+        var pool = calc.FinalPools["ETH"];
+        Assert.Equal(0.99m, pool.Quantity);       // Net: 1 - 0.01 fee
+        Assert.Equal(1030m, pool.PooledCost);      // 1010 GBP cost + 20 crypto fee value
+    }
+
+    // ========== Staking Income Net Reporting ==========
+
+    [Fact]
+    public void StakingIncome_ReportedNetOfCommission()
+    {
+        var warnings = new List<CalculationWarning>();
+        var fx = TestFxHelper.CreateWithDefaultRates(warnings);
+        var calc = new CgtCalculationService(fx, warnings);
+
+        // Two staking rewards:
+        // 10 DOT gross, 2 DOT fee → 8 DOT net, £40 income
+        // 5 DOT gross, 0 fee → 5 DOT net, £25 income
+        var time1 = new DateTimeOffset(2023, 7, 1, 10, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+        var time2 = new DateTimeOffset(2023, 8, 1, 10, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+        var ledger = new List<KrakenLedgerEntry>
+        {
+            new()
+            {
+                RefId = "S-1", Time = time1, Type = "staking",
+                Asset = "DOT", AmountStr = "10", FeeStr = "2",
+                LedgerId = "S-1", NormalisedAsset = "DOT"
+            },
+            new()
+            {
+                RefId = "S-2", Time = time2, Type = "staking",
+                Asset = "DOT", AmountStr = "5", FeeStr = "0",
+                LedgerId = "S-2", NormalisedAsset = "DOT"
+            }
+        };
+
+        var results = calc.CalculateAllTaxYears(ledger, new Dictionary<string, TaxYearUserInput>());
+
+        var summary = results[0];
+        Assert.Equal(2, summary.StakingRewards.Count);
+        Assert.Equal(65m, summary.StakingIncome); // £40 + £25
+
+        // Pool should have net tokens: 8 + 5 = 13
+        Assert.Equal(13m, calc.FinalPools["DOT"].Quantity);
+        Assert.Equal(65m, calc.FinalPools["DOT"].PooledCost); // 13 * £5
+    }
+
+    // ========== GBP Fee with Same-Day and B&B Matching ==========
+
+    [Fact]
+    public void GbpFee_CorrectWithSameDayMatching()
+    {
+        var warnings = new List<CalculationWarning>();
+        var fx = TestFxHelper.CreateWithDefaultRates(warnings);
+        var calc = new CgtCalculationService(fx, warnings);
+
+        var sameDay = new DateTimeOffset(2023, 7, 15, 0, 0, 0, TimeSpan.Zero);
+
+        // Buy 1 ETH for 1000 GBP with £20 fee in the morning → cost = 1020
+        var buyTime = sameDay.AddHours(9).ToUnixTimeSeconds();
+        var ledger = new List<KrakenLedgerEntry>
+        {
+            new()
+            {
+                RefId = "SD-BUY", Time = buyTime, Type = "trade",
+                Asset = "ZGBP", AmountStr = "-1000", FeeStr = "20",
+                LedgerId = "L-1", NormalisedAsset = "GBP"
+            },
+            new()
+            {
+                RefId = "SD-BUY", Time = buyTime, Type = "trade",
+                Asset = "XETH", AmountStr = "1", FeeStr = "0",
+                LedgerId = "L-2", NormalisedAsset = "ETH"
+            }
+        };
+
+        // Sell 1 ETH for 1500 GBP with £10 fee in the afternoon → proceeds = 1490
+        var sellTime = sameDay.AddHours(15).ToUnixTimeSeconds();
+        ledger.Add(new KrakenLedgerEntry
+        {
+            RefId = "SD-SELL", Time = sellTime, Type = "trade",
+            Asset = "XETH", AmountStr = "-1", FeeStr = "0",
+            LedgerId = "L-3", NormalisedAsset = "ETH"
+        });
+        ledger.Add(new KrakenLedgerEntry
+        {
+            RefId = "SD-SELL", Time = sellTime, Type = "trade",
+            Asset = "ZGBP", AmountStr = "1500", FeeStr = "10",
+            LedgerId = "L-4", NormalisedAsset = "GBP"
+        });
+
+        var results = calc.CalculateAllTaxYears(ledger, new Dictionary<string, TaxYearUserInput>());
+
+        var disposal = results.SelectMany(r => r.Disposals).First(d => d.Asset == "ETH");
+        Assert.Equal("Same Day", disposal.MatchingRule);
+        Assert.Equal(1490m, disposal.DisposalProceeds);
+        Assert.Equal(1020m, disposal.AllowableCost);
+        Assert.Equal(470m, disposal.GainOrLoss);
+    }
+
+    // ========== Multiple Buys with GBP Fees — Pool Averaging ==========
+
+    [Fact]
+    public void GbpFees_AcrossMultipleBuys_PoolCostIncludesAllFees()
+    {
+        var warnings = new List<CalculationWarning>();
+        var fx = TestFxHelper.CreateWithDefaultRates(warnings);
+        var calc = new CgtCalculationService(fx, warnings);
+
+        // Buy 1 ETH for 1000 GBP with £10 fee → cost 1010
+        var buy1 = new DateTimeOffset(2023, 5, 1, 10, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+        // Buy 1 ETH for 2000 GBP with £20 fee → cost 2020
+        var buy2 = new DateTimeOffset(2023, 6, 1, 10, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+
+        var ledger = new List<KrakenLedgerEntry>
+        {
+            new() { RefId = "B1", Time = buy1, Type = "trade", Asset = "ZGBP", AmountStr = "-1000", FeeStr = "10", LedgerId = "L-1", NormalisedAsset = "GBP" },
+            new() { RefId = "B1", Time = buy1, Type = "trade", Asset = "XETH", AmountStr = "1", FeeStr = "0", LedgerId = "L-2", NormalisedAsset = "ETH" },
+            new() { RefId = "B2", Time = buy2, Type = "trade", Asset = "ZGBP", AmountStr = "-2000", FeeStr = "20", LedgerId = "L-3", NormalisedAsset = "GBP" },
+            new() { RefId = "B2", Time = buy2, Type = "trade", Asset = "XETH", AmountStr = "1", FeeStr = "0", LedgerId = "L-4", NormalisedAsset = "ETH" },
+        };
+
+        // Sell 1 ETH for 2500 GBP → pool avg cost = (1010 + 2020) / 2 = 1515
+        ledger.AddRange(new LedgerBuilder()
+            .AddTrade(
+                new DateTimeOffset(2023, 9, 1, 10, 0, 0, TimeSpan.Zero),
+                "ETH", 1m, "GBP", 2500m)
+            .Build());
+
+        var results = calc.CalculateAllTaxYears(ledger, new Dictionary<string, TaxYearUserInput>());
+
+        // Pool should have 2 ETH at total cost 3030 before the sell
+        var disposal = results.SelectMany(r => r.Disposals).First(d => d.Asset == "ETH");
+        Assert.Equal(2500m, disposal.DisposalProceeds);
+        Assert.Equal(1515m, disposal.AllowableCost); // 3030 / 2
+        Assert.Equal(985m, disposal.GainOrLoss);
+
+        // Remaining pool: 1 ETH at £1515
+        Assert.Equal(1m, calc.FinalPools["ETH"].Quantity);
+        Assert.Equal(1515m, calc.FinalPools["ETH"].PooledCost);
+    }
 }

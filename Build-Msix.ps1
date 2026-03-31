@@ -103,8 +103,35 @@ else {
 
 Write-Host ""
 
-# Step 2: Build
-Write-Host "[2/3] Building MSIX package ($Platform | Release)..." -ForegroundColor Yellow
+# Step 2: Bump version
+Write-Host "[2/4] Bumping version number..." -ForegroundColor Yellow
+
+$manifestPath = Join-Path $ProjectDir "Package.appxmanifest"
+$manifestXml = [xml](Get-Content $manifestPath -Raw)
+$ns = New-Object Xml.XmlNamespaceManager($manifestXml.NameTable)
+$ns.AddNamespace("m", "http://schemas.microsoft.com/appx/manifest/foundation/windows10")
+$identityNode = $manifestXml.SelectSingleNode("//m:Identity", $ns)
+$oldVersion = [version]$identityNode.Version
+
+# Increment the build (third) component: Major.Minor.Build.Revision
+$newVersion = [version]::new($oldVersion.Major, $oldVersion.Minor, $oldVersion.Build + 1, 0)
+$newVersionStr = $newVersion.ToString()
+
+# Update Package.appxmanifest
+$identityNode.Version = $newVersionStr
+$manifestXml.Save($manifestPath)
+
+# Update AssemblyVersion / FileVersion in .csproj
+$csprojContent = Get-Content $ProjectFile -Raw
+$csprojContent = $csprojContent -replace '<AssemblyVersion>[^<]+</AssemblyVersion>', "<AssemblyVersion>$newVersionStr</AssemblyVersion>"
+$csprojContent = $csprojContent -replace '<FileVersion>[^<]+</FileVersion>', "<FileVersion>$newVersionStr</FileVersion>"
+Set-Content -Path $ProjectFile -Value $csprojContent -NoNewline
+
+Write-Host "  Version: $oldVersion -> $newVersionStr" -ForegroundColor Green
+Write-Host ""
+
+# Step 3: Build
+Write-Host "[3/4] Building MSIX package ($Platform | Release)..." -ForegroundColor Yellow
 Write-Host ""
 
 $buildArgs = @(
@@ -134,8 +161,8 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host ""
 
-# Step 3: Output
-Write-Host "[3/3] Locating output..." -ForegroundColor Yellow
+# Step 4: Output
+Write-Host "[4/4] Locating output..." -ForegroundColor Yellow
 
 $msixDir = Join-Path $ProjectDir "bin\publish\msix\packages"
 $msixFiles = Get-ChildItem -Path $msixDir -Filter "*.msix" -Recurse -ErrorAction SilentlyContinue
