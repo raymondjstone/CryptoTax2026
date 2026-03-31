@@ -366,8 +366,8 @@ public class CgtCalculationServiceExtendedTests
         var summary = results[0];
         Assert.Single(summary.StakingRewards);
         var reward = summary.StakingRewards[0];
-        Assert.Equal(5m, reward.Amount); // Gross amount from ledger
-        Assert.Equal(25m, reward.GbpValue); // 5 DOT * £5/DOT = £25 (gross for income reporting)
+        Assert.Equal(4m, reward.Amount); // Net amount (gross 5 - fee 1)
+        Assert.Equal(20m, reward.GbpValue); // 4 DOT * £5/DOT = £20 (net for income reporting)
 
         // But the CGT event (cost basis in S104 pool) uses net amount: 5 - 1 = 4 DOT
         // Verify by selling 4 DOT — should find exactly 4 in pool

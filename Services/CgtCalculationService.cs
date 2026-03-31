@@ -539,11 +539,15 @@ public class CgtCalculationService
         decimal tradeGbpValue = 0;
         bool hasDirectGbp = false;
 
-        // Sum all GBP entries — a multi-fill order may have several GBP debit entries
+        // Sum all GBP entries — a multi-fill order may have several GBP debit entries.
+        // Fee direction matters: when receiving GBP (sell), fee reduces proceeds;
+        // when spending GBP (buy), fee increases the total outlay (cost basis).
         var gbpEntries = entries.Where(e => e.NormalisedAsset == "GBP").ToList();
         if (gbpEntries.Count > 0)
         {
-            tradeGbpValue = gbpEntries.Sum(e => Math.Abs(e.Amount) - e.Fee);
+            tradeGbpValue = gbpEntries.Sum(e => e.Amount > 0
+                ? e.Amount - e.Fee          // Sell: net proceeds = received − fee
+                : Math.Abs(e.Amount) + e.Fee); // Buy: total cost = spent + fee
             hasDirectGbp = true;
         }
 
@@ -554,7 +558,12 @@ public class CgtCalculationService
             if (fiatEntries.Count > 0)
             {
                 foreach (var fe in fiatEntries)
-                    tradeGbpValue += _fxService.ConvertToGbp(Math.Abs(fe.Amount) - fe.Fee, fe.NormalisedAsset, date);
+                {
+                    var fiatValue = fe.Amount > 0
+                        ? fe.Amount - fe.Fee
+                        : Math.Abs(fe.Amount) + fe.Fee;
+                    tradeGbpValue += _fxService.ConvertToGbp(fiatValue, fe.NormalisedAsset, date);
+                }
                 hasDirectGbp = true;
             }
         }
@@ -566,7 +575,12 @@ public class CgtCalculationService
             if (stableEntries.Count > 0)
             {
                 foreach (var se in stableEntries)
-                    tradeGbpValue += _fxService.ConvertToGbp(Math.Abs(se.Amount) - se.Fee, se.NormalisedAsset, date);
+                {
+                    var stableValue = se.Amount > 0
+                        ? se.Amount - se.Fee
+                        : Math.Abs(se.Amount) + se.Fee;
+                    tradeGbpValue += _fxService.ConvertToGbp(stableValue, se.NormalisedAsset, date);
+                }
                 hasDirectGbp = true;
             }
         }
@@ -1105,13 +1119,17 @@ public class CgtCalculationService
             var stakingDetails = new List<StakingReward>();
             foreach (var s in yearStaking)
             {
-                var gbpValue = _fxService.GetGbpValueOfAsset(s.NormalisedAsset, s.Amount, s.DateTime);
+                // Use net amount (gross - Kraken commission) to match the acquisition event
+                // and the amount that actually lands in the user's account.
+                var netAmount = s.Amount - s.Fee;
+                if (netAmount <= 0) continue;
+                var gbpValue = _fxService.GetGbpValueOfAsset(s.NormalisedAsset, netAmount, s.DateTime);
                 stakingIncome += gbpValue;
                 stakingDetails.Add(new StakingReward
                 {
                     Date = s.DateTime,
                     Asset = s.NormalisedAsset,
-                    Amount = s.Amount,
+                    Amount = netAmount,
                     GbpValue = gbpValue
                 });
             }
