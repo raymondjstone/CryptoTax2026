@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.UI;
@@ -9,7 +7,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
-using Windows.Storage;
 using Windows.Storage.Pickers;
 using CryptoTax2026.Models;
 using CryptoTax2026.Services;
@@ -53,8 +50,6 @@ public sealed partial class TaxYearPage : Page
 
             await Task.Run(() =>
             {
-                var sw = Stopwatch.StartNew();
-
                 // Build refId lookup — no need to sort the full ledger, just group it
                 var ledgerByRefId = new Dictionary<string, List<KrakenLedgerEntry>>(StringComparer.OrdinalIgnoreCase);
                 foreach (var entry in ledger)
@@ -153,18 +148,6 @@ public sealed partial class TaxYearPage : Page
                     .OrderByDescending(a => Math.Abs(a.Gain))
                     .ToList();
 
-                sw.Stop();
-                try
-                {
-                    var perfDir = ApplicationData.Current.LocalFolder.Path;
-                    var perfPath = Path.Combine(perfDir, "perf.log");
-                    File.AppendAllText(perfPath, $"{DateTimeOffset.Now:O} [PERF] TaxYearPage({_summary?.TaxYear}) VM build: disposals={summary.Disposals.Count}, ledger={ledger.Count}, took={sw.Elapsed} path={perfPath}" + Environment.NewLine);
-                    Debug.WriteLine($"[PERF] TaxYearPage wrote perf log: {perfPath}");
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"[PERF] TaxYearPage perf log write failed: {ex}");
-                }
             });
 
             // UI binding runs back on the UI thread — pass pre-built VMs to avoid work on UI thread
@@ -1351,6 +1334,9 @@ public class StakingAssetSummaryViewModel
 
 public class AssetPnlViewModel
 {
+    private static readonly SolidColorBrush GreenBrush = new(Colors.Green);
+    private static readonly SolidColorBrush RedBrush = new(Colors.Red);
+
     public string Asset { get; set; } = "";
     public string Count { get; set; } = "0";
     public decimal Proceeds { get; set; }
@@ -1364,9 +1350,7 @@ public class AssetPnlViewModel
     public string PercentFormatted => TotalAbsGain > 0
         ? $"{Math.Abs(Gain) / TotalAbsGain * 100:0.0}%"
         : "";
-    public SolidColorBrush GainColor => Gain >= 0
-        ? new SolidColorBrush(Colors.Green)
-        : new SolidColorBrush(Colors.Red);
+    public SolidColorBrush GainColor => Gain >= 0 ? GreenBrush : RedBrush;
 
     private static string FormatGbp(decimal amount)
     {

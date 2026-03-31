@@ -40,7 +40,7 @@ public class BalanceSnapshotTests
         var ty = summaries.First(s => s.TaxYear == "2023/24");
 
         // Start of year (6 Apr 2023) should have no ETH
-        Assert.Empty(ty.StartOfYearBalances.Balances.Where(b => b.Asset == "ETH"));
+        Assert.DoesNotContain(ty.StartOfYearBalances.Balances, b => b.Asset == "ETH");
 
         // End of year (5 Apr 2024) should have 1 ETH
         var endEth = ty.EndOfYearBalances.Balances.FirstOrDefault(b => b.Asset == "ETH");

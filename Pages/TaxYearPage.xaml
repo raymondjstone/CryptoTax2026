@@ -915,7 +915,7 @@
                             <TextBlock Grid.Column="6" Text="Rule" FontWeight="SemiBold" />
                         </Grid>
 
-                        <ListView x:Name="DisposalsList" SelectionMode="None" IsItemClickEnabled="False">
+                        <ListView x:Name="DisposalsList" MaxHeight="600" SelectionMode="None" IsItemClickEnabled="False">
                             <ListView.ItemContainerStyle>
                                 <Style TargetType="ListViewItem">
                                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />

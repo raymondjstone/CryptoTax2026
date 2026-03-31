@@ -1,7 +1,5 @@
 using System;
-using System.Diagnostics;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -60,19 +58,6 @@ public sealed partial class MainWindow : Window
         Content.KeyboardAccelerators.Add(CreateAccelerator(VirtualKey.Number9, VirtualKeyModifiers.Control, (_, _) => NavigateToTab(8)));
 
         LoadDataAsync();
-    }
-
-    private static void LogPerf(string message)
-    {
-        try
-        {
-            var line = $"{DateTimeOffset.Now:O} {message}";
-            Debug.WriteLine(line);
-            var perfPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CryptoTax2026", "perf.log");
-            Directory.CreateDirectory(Path.GetDirectoryName(perfPath)!);
-            File.AppendAllText(perfPath, line + Environment.NewLine);
-        }
-        catch { }
     }
 
     private async void LoadDataAsync()
@@ -136,16 +121,11 @@ public sealed partial class MainWindow : Window
     {
         if (_ledger.Count == 0) return;
 
-        var swTotal = Stopwatch.StartNew();
-
         _warnings = new List<CalculationWarning>();
 
         // Create FX service — constructor restores _pairMap, then load all cached files
         _fxService = new FxConversionService(_krakenService, _warnings);
-
-        var swFxLoad = Stopwatch.StartNew();
         _fxService.LoadAllFromDiskCache();
-        swFxLoad.Stop();
 
         var currencies = _ledger
             .Select(e => e.NormalisedAsset)
@@ -161,8 +141,6 @@ public sealed partial class MainWindow : Window
         // Extend any pairs whose cache doesn't reach today — balance snapshots reference
         // tax-year-end dates that go beyond the latest ledger entry.
         await _fxService.PreloadRatesAsync(currencies, earliest, progress, ct);
-
-        var swCalc = Stopwatch.StartNew();
 
         // Now recalculate with the loaded rates
         progress?.Report((0, "Calculating capital gains..."));
@@ -181,18 +159,12 @@ public sealed partial class MainWindow : Window
             var results = svc.CalculateAllTaxYears(mergedLedger, userInputs);
             return (results, svc.FinalPools, svc);
         });
-        swCalc.Stop();
 
         _taxYearSummaries = summaries;
         _finalPools = pools;
         _lastCgtService = cgtService;
 
-        var swUi = Stopwatch.StartNew();
         RebuildTabs();
-        swUi.Stop();
-
-        swTotal.Stop();
-        LogPerf($"[PERF] DownloadFxRatesAndRecalculateAsync: FX disk load={swFxLoad.Elapsed}, CGT calc={swCalc.Elapsed}, UI rebuild={swUi.Elapsed}, total={swTotal.Elapsed}");
     }
 
     /// <summary>
@@ -205,14 +177,9 @@ public sealed partial class MainWindow : Window
     {
         if (_ledger.Count == 0) return;
 
-        var swTotal = Stopwatch.StartNew();
-
         var warnings = new List<CalculationWarning>();
         var fxService = new FxConversionService(_krakenService, warnings);
-
-        var swFxLoad = Stopwatch.StartNew();
         fxService.LoadAllFromDiskCache();
-        swFxLoad.Stop();
 
         var trades = _trades;
         var delistedAssets = _settings.DelistedAssets;
@@ -220,14 +187,12 @@ public sealed partial class MainWindow : Window
         var mergedLedger = GetMergedLedger();
         var userInputs = _settings.TaxYearInputs;
 
-        var swCalc = Stopwatch.StartNew();
         var (summaries, pools, cgtService) = await Task.Run(() =>
         {
             var svc = new CgtCalculationService(fxService, warnings, trades, delistedAssets, costOverrides);
             var results = svc.CalculateAllTaxYears(mergedLedger, userInputs);
             return (results, svc.FinalPools, svc);
         });
-        swCalc.Stop();
 
         _fxService = fxService;
         _warnings = warnings;
@@ -235,12 +200,7 @@ public sealed partial class MainWindow : Window
         _finalPools = pools;
         _lastCgtService = cgtService;
 
-        var swUi = Stopwatch.StartNew();
         RebuildTabs();
-        swUi.Stop();
-
-        swTotal.Stop();
-        LogPerf($"[PERF] RecalculateWithCachedRatesAsync: FX disk load={swFxLoad.Elapsed}, CGT calc={swCalc.Elapsed}, UI rebuild={swUi.Elapsed}, total={swTotal.Elapsed}");
     }
 
     /// <summary>
