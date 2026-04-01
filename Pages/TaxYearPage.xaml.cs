@@ -73,7 +73,7 @@ public sealed partial class TaxYearPage : Page
 
                     var vms = new List<BnbLedgerEntryViewModel>(list.Count);
                     foreach (var x in list)
-                        vms.Add(new BnbLedgerEntryViewModel(x));
+                        vms.Add(new BnbLedgerEntryViewModel(x, mw.FxService));
                     return vms;
                 }
 
@@ -175,6 +175,7 @@ public sealed partial class TaxYearPage : Page
         OtherGainsBox.Value = userInput?.OtherCapitalGains > 0 ? (double)userInput.OtherCapitalGains : double.NaN;
 
         UpdateSummaryDisplay();
+        CheckFxRatesCoverage();
         LoadDeadlines();
         LoadSA108();
         LoadBnbReport();
@@ -1169,6 +1170,113 @@ public sealed partial class TaxYearPage : Page
         ExportInfoBar.IsOpen = true;
     }
 
+    private void CheckFxRatesCoverage()
+    {
+        if (_summary == null || _mainWindow?.FxService == null) return;
+
+        var taxYearEnd = new DateTimeOffset(_summary.StartYear + 1, 4, 5, 23, 59, 59, TimeSpan.Zero);
+
+        // Get all currencies used in disposals for this tax year
+        var currencies = _summary.Disposals
+            .Select(d => d.Asset)
+            .Where(a => !string.IsNullOrEmpty(a) && !a.Equals("GBP", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (currencies.Count == 0) return;
+
+        // Check if we have FX rates coverage up to the tax year end
+        var latestAvailableDate = GetLatestFxRateDate(currencies);
+
+        if (latestAvailableDate.HasValue && latestAvailableDate.Value.Date < taxYearEnd.Date)
+        {
+            var daysMissing = (taxYearEnd.Date - latestAvailableDate.Value.Date).Days;
+
+            // Try to use the FxRatesWarningBar if it exists, otherwise fall back to ExportInfoBar
+            try
+            {
+                FxRatesWarningBar.Message = $"FX rates only available until {latestAvailableDate.Value:dd MMM yyyy}. " +
+                                           $"Missing {daysMissing} days including tax year end (5 April {taxYearEnd.Year}). " +
+                                           "This may affect the accuracy of end-of-year holdings calculations.";
+                FxRatesWarningBar.IsOpen = true;
+            }
+            catch
+            {
+                // Fallback to ExportInfoBar if FxRatesWarningBar is not available
+                ExportInfoBar.Message = $"FX rates only available until {latestAvailableDate.Value:dd MMM yyyy}. " +
+                                       $"Missing {daysMissing} days including tax year end (5 April {taxYearEnd.Year}).";
+                ExportInfoBar.Severity = InfoBarSeverity.Warning;
+                ExportInfoBar.IsOpen = true;
+            }
+        }
+        else
+        {
+            try
+            {
+                FxRatesWarningBar.IsOpen = false;
+            }
+            catch
+            {
+                // Ignore if control doesn't exist
+            }
+        }
+    }
+
+    private DateTimeOffset? GetLatestFxRateDate(List<string> currencies)
+    {
+        if (_mainWindow?.FxService == null) return null;
+
+        DateTimeOffset? latestDate = null;
+
+        foreach (var currency in currencies)
+        {
+            try
+            {
+                // Try a recent date to see if we have rates
+                var testDate = DateTimeOffset.UtcNow.Date.AddDays(-1); // Start from yesterday
+
+                // Work backwards to find the latest date with available rates (check up to 30 days)
+                for (int i = 0; i < 30; i++)
+                {
+                    var checkDate = testDate.AddDays(-i);
+                    var rate = _mainWindow.FxService.ConvertToGbp(1m, currency, checkDate);
+
+                    if (rate > 0) // Found a valid rate
+                    {
+                        if (!latestDate.HasValue || checkDate > latestDate.Value)
+                        {
+                            latestDate = checkDate;
+                        }
+                        break;
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore errors for individual currencies
+            }
+        }
+
+        return latestDate;
+    }
+
+    private async void DownloadFxRates_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mainWindow == null) return;
+
+        try
+        {
+            // Navigate to settings page
+            _mainWindow.NavigateToSettings();
+        }
+        catch (Exception ex)
+        {
+            ExportInfoBar.Message = $"Failed to navigate to settings: {ex.Message}";
+            ExportInfoBar.Severity = InfoBarSeverity.Error;
+            ExportInfoBar.IsOpen = true;
+        }
+    }
+
     private static string FormatGbp(decimal amount)
     {
         return amount < 0 ? $"-£{Math.Abs(amount):#,##0.00}" : $"£{amount:#,##0.00}";
@@ -1361,8 +1469,46 @@ public class AssetPnlViewModel
 public class BnbLedgerEntryViewModel
 {
     private readonly KrakenLedgerEntry _entry;
+    private readonly string _gbpRateFormatted;
+    private readonly string _rateDateFormatted;
 
-    public BnbLedgerEntryViewModel(KrakenLedgerEntry entry) => _entry = entry;
+    public BnbLedgerEntryViewModel(KrakenLedgerEntry entry, Services.FxConversionService? fxService = null)
+    {
+        _entry = entry;
+
+        // Calculate FX rate information if available
+        if (fxService != null && !string.IsNullOrEmpty(entry.NormalisedAsset) && entry.NormalisedAsset != "GBP")
+        {
+            try
+            {
+                // Get the actual rate used for this transaction
+                var gbpValue = fxService.ConvertToGbp(1m, entry.NormalisedAsset, entry.DateTime);
+                if (gbpValue > 0)
+                {
+                    _gbpRateFormatted = gbpValue.ToString("F4");
+
+                    // Get rate information to determine the source and timing
+                    var rateInfo = fxService.GetRateInfo(entry.NormalisedAsset, entry.DateTime);
+                    _rateDateFormatted = rateInfo ?? entry.DateTime.ToString("dd/MM HH:mm");
+                }
+                else
+                {
+                    _gbpRateFormatted = "N/A";
+                    _rateDateFormatted = "N/A";
+                }
+            }
+            catch
+            {
+                _gbpRateFormatted = "Error";
+                _rateDateFormatted = "Error";
+            }
+        }
+        else
+        {
+            _gbpRateFormatted = entry.NormalisedAsset == "GBP" ? "1.0000" : "N/A";
+            _rateDateFormatted = entry.NormalisedAsset == "GBP" ? "GBP" : "N/A";
+        }
+    }
 
     public DateTimeOffset RawDateTime => _entry.DateTime;
     public string DateFormatted => _entry.DateTime.ToString("dd/MM/yyyy HH:mm");
@@ -1375,6 +1521,8 @@ public class BnbLedgerEntryViewModel
         : _entry.Amount.ToString("0.########");
     public string FeeFormatted => _entry.Fee != 0 ? $"{_entry.Fee:0.########}" : "";
     public string LedgerId => _entry.LedgerId;
+    public string GbpRateFormatted => _gbpRateFormatted;
+    public string RateDateFormatted => _rateDateFormatted;
 }
 
 public class BnbDisposalViewModel

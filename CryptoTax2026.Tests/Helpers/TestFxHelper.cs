@@ -19,14 +19,29 @@ public static class TestFxHelper
         List<CalculationWarning> warnings,
         Dictionary<string, SortedList<long, decimal>>? rates = null)
     {
-        var service = new FxConversionService(null!, warnings);
+        var service = new FxConversionService(null!, warnings, null, FxRateType.Average);
 
         var cache = GetRateCache(service);
 
         if (rates != null)
         {
             foreach (var (pair, pairRates) in rates)
-                cache[pair] = pairRates;
+            {
+                // Convert decimal rates to OHLC candles for new cache format
+                var ohlcRates = new SortedList<long, OhlcCandle>();
+                foreach (var (timestamp, rate) in pairRates)
+                {
+                    ohlcRates[timestamp] = new OhlcCandle
+                    {
+                        Timestamp = timestamp,
+                        Open = rate,
+                        High = rate,
+                        Low = rate,
+                        Close = rate
+                    };
+                }
+                cache[pair] = ohlcRates;
+            }
         }
 
         return service;
@@ -79,10 +94,10 @@ public static class TestFxHelper
         return rates;
     }
 
-    private static Dictionary<string, SortedList<long, decimal>> GetRateCache(FxConversionService service)
+    private static Dictionary<string, SortedList<long, OhlcCandle>> GetRateCache(FxConversionService service)
     {
         var field = typeof(FxConversionService).GetField("_rateCache", BindingFlags.NonPublic | BindingFlags.Instance)
             ?? throw new InvalidOperationException("Could not find _rateCache field on FxConversionService");
-        return (Dictionary<string, SortedList<long, decimal>>)field.GetValue(service)!;
+        return (Dictionary<string, SortedList<long, OhlcCandle>>)field.GetValue(service)!;
     }
 }

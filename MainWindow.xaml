@@ -25,6 +25,15 @@
                        VerticalAlignment="Center"
                        Margin="16,0,0,0"
                        Style="{StaticResource CaptionTextBlockStyle}" />
+            <HyperlinkButton x:Name="BuyMeCoffeeButton" Content="☕ Buy me a coffee"
+                             NavigateUri="https://buymeacoffee.com/raymondjstone"
+                             HorizontalAlignment="Right"
+                             VerticalAlignment="Center"
+                             Margin="0,0,148,0"
+                             Padding="8,2"
+                             FontSize="12"
+                             ToolTipService.ToolTip="Any amount is appreciated and helps fund continued development!"
+                             Click="BuyMeCoffeeButton_Click" />
         </Grid>
 
         <NavigationView x:Name="NavView" Grid.Row="1"

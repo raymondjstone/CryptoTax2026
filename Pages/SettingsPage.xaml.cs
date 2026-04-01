@@ -34,6 +34,7 @@ public sealed partial class SettingsPage : Page
             UpdateFreshnessIndicator();
             LoadAuditLog();
             LoadThemeSelector();
+            LoadFxRateTypeSelector();
         }
     }
 
@@ -115,7 +116,11 @@ public sealed partial class SettingsPage : Page
         {
             var totalPoints = stats.Sum(s => s.DataPoints);
             var onDisk = stats.Count(s => s.OnDisk);
-            FxStatusText.Text = $"{stats.Count} FX pairs loaded ({totalPoints:#,##0} data points, {onDisk} cached to disk).";
+            var krakenPairs = _mainWindow.FxService.GetDiscoveredKrakenPairs();
+            var krakenPairCount = krakenPairs.Count;
+
+            FxStatusText.Text = $"{stats.Count} FX pairs loaded ({totalPoints:#,##0} data points, {onDisk} cached to disk). " +
+                               $"{krakenPairCount} pairs discovered from Kraken API.";
         }
     }
 
@@ -437,11 +442,106 @@ public sealed partial class SettingsPage : Page
         }
     }
 
+    // New method for reset and re-download FX rates
+    private async void ResetAndDownloadFxRates_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mainWindow == null) return;
+
+        if (_mainWindow.Ledger.Count == 0)
+        {
+            InfoMessage.Message = "Download ledger data first before loading FX rates.";
+            InfoMessage.Severity = InfoBarSeverity.Warning;
+            InfoMessage.IsOpen = true;
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "Reset FX Rate Data",
+            Content = "This will delete all cached FX rate data and re-download fresh rates from scratch.\n\n" +
+                     "✅ PRESERVED (NEVER DELETED):\n" +
+                     "• Manual ledger entries\n" +
+                     "• Manual FX rate overrides\n" +
+                     "• All settings and configurations\n" +
+                     "• Your ledger data\n\n" +
+                     "❌ DELETED (FX cache only):\n" +
+                     "• Cached exchange rate files\n" +
+                     "• Pair discovery cache\n\n" +
+                     "Continue?",
+            PrimaryButtonText = "Reset & Re-download",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = this.XamlRoot
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            return;
+
+        SetButtonsEnabled(false);
+        FxProgress.Visibility = Visibility.Visible;
+        FxProgress.IsIndeterminate = true;
+        FxProgressText.Visibility = Visibility.Visible;
+
+        _cts = new CancellationTokenSource();
+
+        try
+        {
+            // Reset FX cache and service
+            _mainWindow.StorageService.DeleteFxCache();
+            _mainWindow.ResetFxService();
+            UpdateFxStatus();
+
+            var progress = new Progress<(int count, string status)>(p =>
+            {
+                FxProgressText.Text = p.status;
+            });
+
+            FxProgressText.Text = "Resetting FX cache and preparing fresh download...";
+            await _mainWindow.DownloadFxRatesAndRecalculateAsync(progress, _cts.Token);
+
+            UpdateFxStatus();
+            UpdateLedgerStatus();
+
+            var stats = _mainWindow.FxService?.GetCacheStats();
+            var pairCount = stats?.Count ?? 0;
+            var pointCount = stats?.Sum(s => s.DataPoints) ?? 0;
+
+            InfoMessage.Message = $"FX rates reset and reloaded: {pairCount} pairs, {pointCount:#,##0} fresh data points. Tax calculations updated.";
+            InfoMessage.Severity = InfoBarSeverity.Success;
+            InfoMessage.IsOpen = true;
+
+            _mainWindow.Settings.LastFxDownload = DateTimeOffset.UtcNow;
+            _mainWindow.AddAuditEntry("FX Reset & Download", $"{pairCount} pairs, {pointCount:#,##0} fresh data points");
+            await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
+            UpdateFreshnessIndicator();
+        }
+        catch (OperationCanceledException)
+        {
+            InfoMessage.Message = "FX rate reset and download cancelled.";
+            InfoMessage.Severity = InfoBarSeverity.Informational;
+            InfoMessage.IsOpen = true;
+        }
+        catch (Exception ex)
+        {
+            InfoMessage.Message = $"FX rate reset and download failed: {ex.Message}";
+            InfoMessage.Severity = InfoBarSeverity.Error;
+            InfoMessage.IsOpen = true;
+        }
+        finally
+        {
+            SetButtonsEnabled(true);
+            FxProgress.Visibility = Visibility.Collapsed;
+            FxProgress.IsIndeterminate = false;
+            FxProgressText.Visibility = Visibility.Collapsed;
+        }
+    }
+
     private void SetButtonsEnabled(bool enabled)
     {
         DownloadBtn.IsEnabled = enabled;
         ResetBtn.IsEnabled = enabled;
         FxDownloadBtn.IsEnabled = enabled;
+        FxResetAndDownloadBtn.IsEnabled = enabled;
     }
 
     private void LoadThemeSelector()
@@ -476,6 +576,39 @@ public sealed partial class SettingsPage : Page
                 "Dark" => ElementTheme.Dark,
                 _ => ElementTheme.Default
             };
+        }
+    }
+
+    private void LoadFxRateTypeSelector()
+    {
+        if (_mainWindow == null) return;
+        var rateType = _mainWindow.Settings.FxRateType.ToString();
+        for (int i = 0; i < FxRateTypeSelector.Items.Count; i++)
+        {
+            if (FxRateTypeSelector.Items[i] is ComboBoxItem item && item.Tag?.ToString() == rateType)
+            {
+                FxRateTypeSelector.SelectedIndex = i;
+                break;
+            }
+        }
+    }
+
+    private async void FxRateTypeSelector_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_mainWindow == null) return;
+        if (FxRateTypeSelector.SelectedItem is not ComboBoxItem item) return;
+
+        var rateTypeStr = item.Tag?.ToString() ?? "Close";
+        if (Enum.TryParse<FxRateType>(rateTypeStr, out var newRateType))
+        {
+            if (newRateType != _mainWindow.Settings.FxRateType)
+            {
+                await _mainWindow.UpdateFxRateTypeAsync(newRateType);
+
+                InfoMessage.Message = $"Exchange rate calculation method changed to {newRateType}. All calculations updated.";
+                InfoMessage.Severity = InfoBarSeverity.Success;
+                InfoMessage.IsOpen = true;
+            }
         }
     }
 
@@ -554,28 +687,58 @@ public sealed partial class SettingsPage : Page
         var folder = await picker.PickSingleFolderAsync();
         if (folder == null) return;
 
-        _mainWindow.Settings.CustomDataPath = folder.Path;
-        await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
-        DataPathText.Text = folder.Path;
-        ResetDataFolderBtn.Visibility = Visibility.Visible;
+        try
+        {
+            // Update data path and migrate data immediately
+            await _mainWindow.UpdateDataPathAsync(folder.Path);
 
-        InfoMessage.Message = $"Custom data path set to {folder.Path}. Settings will be saved there on next restart.";
-        InfoMessage.Severity = InfoBarSeverity.Success;
-        InfoMessage.IsOpen = true;
+            // Update UI
+            DataPathText.Text = folder.Path;
+            ResetDataFolderBtn.Visibility = Visibility.Visible;
+
+            InfoMessage.Message = $"Data path changed to {folder.Path}. All data has been migrated to the new location.";
+            InfoMessage.Severity = InfoBarSeverity.Success;
+            InfoMessage.IsOpen = true;
+
+            // Update the status displays to reflect new location
+            UpdateLedgerStatus();
+            UpdateFxStatus();
+        }
+        catch (Exception ex)
+        {
+            InfoMessage.Message = $"Failed to change data path: {ex.Message}";
+            InfoMessage.Severity = InfoBarSeverity.Error;
+            InfoMessage.IsOpen = true;
+        }
     }
 
     private async void ResetDataFolder_Click(object sender, RoutedEventArgs e)
     {
         if (_mainWindow == null) return;
 
-        _mainWindow.Settings.CustomDataPath = null;
-        await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
-        DataPathText.Text = _mainWindow.StorageService.GetDataFolderPath();
-        ResetDataFolderBtn.Visibility = Visibility.Collapsed;
+        try
+        {
+            // Reset to default path and migrate data immediately
+            await _mainWindow.UpdateDataPathAsync(null);
 
-        InfoMessage.Message = "Data path reset to default.";
-        InfoMessage.Severity = InfoBarSeverity.Success;
-        InfoMessage.IsOpen = true;
+            // Update UI
+            DataPathText.Text = _mainWindow.StorageService.GetDataFolderPath();
+            ResetDataFolderBtn.Visibility = Visibility.Collapsed;
+
+            InfoMessage.Message = "Data path reset to default location. All data has been migrated back.";
+            InfoMessage.Severity = InfoBarSeverity.Success;
+            InfoMessage.IsOpen = true;
+
+            // Update the status displays to reflect new location
+            UpdateLedgerStatus();
+            UpdateFxStatus();
+        }
+        catch (Exception ex)
+        {
+            InfoMessage.Message = $"Failed to reset data path: {ex.Message}";
+            InfoMessage.Severity = InfoBarSeverity.Error;
+            InfoMessage.IsOpen = true;
+        }
     }
 
     // ========== BACKUP / RESTORE ==========
@@ -584,26 +747,51 @@ public sealed partial class SettingsPage : Page
     {
         if (_mainWindow == null) return;
 
-        var picker = new FileSavePicker();
+        var picker = new Windows.Storage.Pickers.FolderPicker();
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_mainWindow);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
         picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
-        picker.SuggestedFileName = $"CryptoTax2026_Backup_{DateTime.Now:yyyy-MM-dd_HHmmss}";
-        picker.FileTypeChoices.Add("JSON File", new List<string> { ".json" });
+        picker.FileTypeFilter.Add("*");
 
-        var file = await picker.PickSaveFileAsync();
-        if (file == null) return;
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder == null) return;
 
         try
         {
-            var json = JsonSerializer.Serialize(_mainWindow.Settings, new JsonSerializerOptions { WriteIndented = true });
-            await File.WriteAllTextAsync(file.Path, json);
+            var timestamp = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
+            var backupFolderName = $"CryptoTax2026_Backup_{timestamp}";
+            var backupPath = Path.Combine(folder.Path, backupFolderName);
 
-            _mainWindow.AddAuditEntry("Backup", $"Settings exported to {file.Path}");
+            // Get backup statistics before starting
+            var fileCount = _mainWindow.StorageService.GetDataFileCount();
+            var totalSize = _mainWindow.StorageService.GetTotalDataSize();
+            var sizeMB = totalSize / (1024.0 * 1024.0);
+
+            // Confirm backup with user
+            var dialog = new ContentDialog
+            {
+                Title = "Export Complete Backup",
+                Content = $"This will create a complete backup of all your data:\n\n" +
+                         $"• {fileCount} files ({sizeMB:F1} MB)\n" +
+                         $"• Ledger data, settings, and FX rate cache\n" +
+                         $"• Backup location: {backupPath}\n\n" +
+                         $"Continue?",
+                PrimaryButtonText = "Export Backup",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = this.XamlRoot
+            };
+
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+            // Perform the backup
+            await _mainWindow.StorageService.BackupAllDataAsync(backupPath);
+
+            _mainWindow.AddAuditEntry("Backup", $"Complete data backup exported to {backupPath} ({fileCount} files, {sizeMB:F1} MB)");
             await _mainWindow.StorageService.SaveSettingsAsync(_mainWindow.Settings);
 
-            BackupStatusText.Text = $"Backup saved to {file.Path}";
-            InfoMessage.Message = "Backup exported successfully.";
+            BackupStatusText.Text = $"Backup saved to {backupFolderName}";
+            InfoMessage.Message = $"Complete backup exported successfully to {backupFolderName}";
             InfoMessage.Severity = InfoBarSeverity.Success;
             InfoMessage.IsOpen = true;
         }
@@ -619,57 +807,132 @@ public sealed partial class SettingsPage : Page
     {
         if (_mainWindow == null) return;
 
-        var picker = new Windows.Storage.Pickers.FileOpenPicker();
+        var picker = new Windows.Storage.Pickers.FolderPicker();
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_mainWindow);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
         picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
-        picker.FileTypeFilter.Add(".json");
+        picker.FileTypeFilter.Add("*");
 
-        var file = await picker.PickSingleFileAsync();
-        if (file == null) return;
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder == null) return;
 
         try
         {
-            var json = await File.ReadAllTextAsync(file.Path);
-            var restored = JsonSerializer.Deserialize<AppSettings>(json);
-            if (restored == null)
+            // Validate backup folder
+            var backupFiles = Directory.GetFiles(folder.Path, "*.json", SearchOption.AllDirectories);
+            if (backupFiles.Length == 0)
             {
-                InfoMessage.Message = "Invalid backup file.";
+                InfoMessage.Message = "Invalid backup folder. No data files found.";
                 InfoMessage.Severity = InfoBarSeverity.Error;
                 InfoMessage.IsOpen = true;
                 return;
             }
 
-            // Confirm
-            var dialog = new ContentDialog
+            // Try to read settings from backup to show details
+            var backupSettingsFile = Path.Combine(folder.Path, "settings.json");
+            AppSettings? backupSettings = null;
+            if (File.Exists(backupSettingsFile))
             {
-                Title = "Restore Backup",
-                Content = $"This will replace all current settings with the backup from {file.Name}. " +
-                    $"The backup contains {restored.ManualLedgerEntries.Count} manual entries, " +
-                    $"{restored.CostBasisOverrides.Count} cost overrides, " +
-                    $"{restored.DelistedAssets.Count} delisted assets. Continue?",
-                PrimaryButtonText = "Restore",
+                var json = await File.ReadAllTextAsync(backupSettingsFile);
+                backupSettings = JsonSerializer.Deserialize<AppSettings>(json);
+            }
+
+            var fileCount = backupFiles.Length;
+            var totalSize = backupFiles.Sum(f => new FileInfo(f).Length);
+            var sizeMB = totalSize / (1024.0 * 1024.0);
+
+            // Show comprehensive "are you sure" dialog
+            var dialogContent = $"⚠️ WARNING: This will completely replace ALL your current data!\n\n" +
+                               $"CURRENT DATA WILL BE LOST:\n" +
+                               $"• All ledger data and tax calculations\n" +
+                               $"• All settings and configurations\n" +
+                               $"• All FX rate cache\n\n" +
+                               $"BACKUP TO RESTORE:\n" +
+                               $"• Location: {folder.Name}\n" +
+                               $"• Files: {fileCount} ({sizeMB:F1} MB)\n";
+
+            if (backupSettings != null)
+            {
+                dialogContent += $"• Manual entries: {backupSettings.ManualLedgerEntries.Count}\n" +
+                               $"• Cost overrides: {backupSettings.CostBasisOverrides.Count}\n" +
+                               $"• Delisted assets: {backupSettings.DelistedAssets.Count}\n";
+            }
+
+            dialogContent += $"\nThis action CANNOT be undone. Are you absolutely sure?";
+
+            var confirmDialog = new ContentDialog
+            {
+                Title = "⚠️ Restore Complete Backup",
+                Content = dialogContent,
+                PrimaryButtonText = "Yes, Replace All Data",
                 CloseButtonText = "Cancel",
                 DefaultButton = ContentDialogButton.Close,
                 XamlRoot = this.XamlRoot
             };
 
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+            if (await confirmDialog.ShowAsync() != ContentDialogResult.Primary) return;
 
-            // Preserve window position from current settings
-            restored.WindowX = _mainWindow.Settings.WindowX;
-            restored.WindowY = _mainWindow.Settings.WindowY;
-            restored.WindowWidth = _mainWindow.Settings.WindowWidth;
-            restored.WindowHeight = _mainWindow.Settings.WindowHeight;
-            restored.IsMaximized = _mainWindow.Settings.IsMaximized;
+            // Second confirmation for safety
+            var finalConfirmDialog = new ContentDialog
+            {
+                Title = "Final Confirmation",
+                Content = "Last chance! This will permanently delete all your current data and replace it with the backup.\n\nProceed with restore?",
+                PrimaryButtonText = "Proceed",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = this.XamlRoot
+            };
 
-            await _mainWindow.StorageService.SaveSettingsAsync(restored);
+            if (await finalConfirmDialog.ShowAsync() != ContentDialogResult.Primary) return;
 
-            InfoMessage.Message = "Backup restored. Restart the app to apply all changes.";
+            // Perform the restore
+            await _mainWindow.StorageService.RestoreAllDataAsync(folder.Path);
+
+            // Reload settings from restored data
+            var restoredSettings = await _mainWindow.StorageService.LoadSettingsAsync();
+
+            // Preserve current window position
+            restoredSettings.WindowX = _mainWindow.Settings.WindowX;
+            restoredSettings.WindowY = _mainWindow.Settings.WindowY;
+            restoredSettings.WindowWidth = _mainWindow.Settings.WindowWidth;
+            restoredSettings.WindowHeight = _mainWindow.Settings.WindowHeight;
+            restoredSettings.IsMaximized = _mainWindow.Settings.IsMaximized;
+
+            await _mainWindow.StorageService.SaveSettingsAsync(restoredSettings);
+
+            // Update current session
+            _mainWindow.UpdateSettings(restoredSettings);
+
+            // Reload ledger data from restored files
+            if (_mainWindow.StorageService.HasSavedLedger())
+            {
+                var restoredLedger = await _mainWindow.StorageService.LoadLedgerAsync();
+                _mainWindow.SetLedger(restoredLedger);
+            }
+            else
+            {
+                _mainWindow.SetLedger(new List<KrakenLedgerEntry>());
+            }
+
+            // Reset FX service to pick up restored cache
+            _mainWindow.ResetFxService();
+
+            // Refresh all UI elements
+            LoadSettings();
+            LoadThemeSelector();
+            LoadFxRateTypeSelector();
+            UpdateLedgerStatus();
+            UpdateFxStatus();
+            UpdateFreshnessIndicator();
+            LoadAuditLog();
+
+            _mainWindow.AddAuditEntry("Restore", $"Complete data backup restored from {folder.Name} ({fileCount} files, {sizeMB:F1} MB)");
+
+            InfoMessage.Message = $"Backup restored successfully! All data has been replaced from {folder.Name}.";
             InfoMessage.Severity = InfoBarSeverity.Success;
             InfoMessage.IsOpen = true;
 
-            BackupStatusText.Text = $"Restored from {file.Name}";
+            BackupStatusText.Text = $"Restored from {folder.Name}";
         }
         catch (Exception ex)
         {

@@ -66,6 +66,8 @@
                 <Button x:Name="FxDownloadBtn" Content="Download FX Rates"
                         Style="{StaticResource AccentButtonStyle}"
                         Click="DownloadFxRates_Click" />
+                <Button x:Name="FxResetAndDownloadBtn" Content="Reset &amp; Re-download FX Rates"
+                        Click="ResetAndDownloadFxRates_Click" />
             </StackPanel>
             <TextBlock x:Name="FxInfoNote" Text="Downloads exchange rates for every asset in your ledger. Requires ledger data first."
                        Opacity="0.6" FontStyle="Italic" TextWrapping="Wrap" />
@@ -73,6 +75,38 @@
             <ProgressBar x:Name="FxProgress" IsIndeterminate="False" Visibility="Collapsed"
                          Width="500" HorizontalAlignment="Left" />
             <TextBlock x:Name="FxProgressText" Text="" Visibility="Collapsed" />
+
+            <!-- ========== FX RATE CALCULATION METHOD ========== -->
+            <StackPanel Spacing="8" Margin="0,12,0,0">
+                <TextBlock Text="Exchange Rate Calculation Method (HMRC Compliance)" FontWeight="SemiBold" FontSize="14" />
+                <TextBlock Text="Choose how exchange rates are calculated from OHLC data for tax calculations:"
+                           Opacity="0.7" TextWrapping="Wrap" FontSize="12" />
+                <ComboBox x:Name="FxRateTypeSelector" Header="Rate Calculation Method" Width="400" HorizontalAlignment="Left"
+                          SelectionChanged="FxRateTypeSelector_Changed">
+                    <ComboBoxItem Content="Daily Average (Default)" Tag="Average" ToolTipService.ToolTip="Average of daily high and low prices"/>
+                    <ComboBoxItem Content="Daily Open" Tag="Open" ToolTipService.ToolTip="First trading price of the day"/>
+                    <ComboBoxItem Content="Daily High" Tag="High" ToolTipService.ToolTip="Highest trading price of the day"/>
+                    <ComboBoxItem Content="Daily Low" Tag="Low" ToolTipService.ToolTip="Lowest trading price of the day"/>
+                    <ComboBoxItem Content="Daily Close" Tag="Close" ToolTipService.ToolTip="Last trading price of the day"/>
+                </ComboBox>
+                <Border Background="#FFF3CD" 
+                        CornerRadius="6" Padding="12" Margin="0,8,0,0"
+                        BorderBrush="#FFEAA7" BorderThickness="1">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="⚠️ IMPORTANT: Consistency Required" FontWeight="SemiBold" FontSize="12" 
+                                   Foreground="#856404" />
+                        <TextBlock Text="Once you select a rate calculation method, you MUST use it consistently across all transactions and tax years. Changing methods mid-year or between years may invalidate your tax calculations for HMRC purposes."
+                                   TextWrapping="Wrap" FontSize="11" 
+                                   Foreground="#856404" />
+                        <HyperlinkButton Content="📖 HMRC Guidance: Crypto23000 - Exchange Rates" 
+                                         NavigateUri="https://www.gov.uk/hmrc-internal-manuals/cryptoassets-manual/crypto23000"
+                                         FontSize="11" Padding="0" Margin="0,4,0,0" 
+                                         Foreground="#0066CC" />
+                    </StackPanel>
+                </Border>
+                <TextBlock Text="All methods shown above are acceptable to HMRC. The choice depends on your preference and circumstances, but must be applied consistently."
+                           Opacity="0.6" FontStyle="Italic" TextWrapping="Wrap" FontSize="11" />
+            </StackPanel>
 
             <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
 
@@ -175,6 +209,13 @@
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
+
+            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
+
+            <!-- ========== SUPPORT ========== -->
+            <TextBlock Text="Support" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <TextBlock Text="If you find this app useful, consider buying me a coffee!" Opacity="0.7" />
+            <HyperlinkButton Content="☕  Buy Me a Coffee" NavigateUri="https://buymeacoffee.com/raymondjstone" />
 
         </StackPanel>
     </ScrollViewer>

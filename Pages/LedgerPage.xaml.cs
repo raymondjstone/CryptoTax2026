@@ -36,7 +36,7 @@ public sealed partial class LedgerPage : Page
 
         // Kraken entries tagged as "Kraken"
         var krakenVMs = _mainWindow.Ledger
-            .Select(entry => new LedgerEntryViewModel(entry, "Kraken"));
+            .Select(entry => new LedgerEntryViewModel(entry, "Kraken", _mainWindow.FxService));
 
         // Manual/CSV entries tagged by their source
         var manualVMs = _mainWindow.Settings.ManualLedgerEntries
@@ -54,7 +54,8 @@ public sealed partial class LedgerPage : Page
                     LedgerId = m.RefId,
                     NormalisedAsset = m.NormalisedAsset
                 },
-                m.Source));
+                m.Source,
+                _mainWindow.FxService));
 
         _allEntries = krakenVMs.Concat(manualVMs)
             .OrderByDescending(e => e.SortTime)
@@ -231,11 +232,46 @@ public sealed partial class LedgerPage : Page
 public class LedgerEntryViewModel
 {
     private readonly KrakenLedgerEntry _entry;
+    private readonly string _gbpRateFormatted;
+    private readonly string _rateDateFormatted;
 
-    public LedgerEntryViewModel(KrakenLedgerEntry entry, string source = "Kraken")
+    public LedgerEntryViewModel(KrakenLedgerEntry entry, string source = "Kraken", Services.FxConversionService? fxService = null)
     {
         _entry = entry;
         Source = source;
+
+        // Calculate FX rate information if available
+        if (fxService != null && !string.IsNullOrEmpty(entry.NormalisedAsset) && entry.NormalisedAsset != "GBP")
+        {
+            try
+            {
+                // Get the actual rate used for this transaction
+                var gbpValue = fxService.ConvertToGbp(1m, entry.NormalisedAsset, entry.DateTime);
+                if (gbpValue > 0)
+                {
+                    _gbpRateFormatted = gbpValue.ToString("F4");
+
+                    // Get rate information to determine the source and timing
+                    var rateInfo = fxService.GetRateInfo(entry.NormalisedAsset, entry.DateTime);
+                    _rateDateFormatted = rateInfo ?? entry.DateTime.ToString("dd/MM HH:mm");
+                }
+                else
+                {
+                    _gbpRateFormatted = "N/A";
+                    _rateDateFormatted = "N/A";
+                }
+            }
+            catch
+            {
+                _gbpRateFormatted = "Error";
+                _rateDateFormatted = "Error";
+            }
+        }
+        else
+        {
+            _gbpRateFormatted = entry.NormalisedAsset == "GBP" ? "1.0000" : "N/A";
+            _rateDateFormatted = entry.NormalisedAsset == "GBP" ? "GBP" : "N/A";
+        }
     }
 
     public KrakenLedgerEntry UnderlyingEntry => _entry;
@@ -250,6 +286,8 @@ public class LedgerEntryViewModel
     public string AmountFormatted => _entry.Amount.ToString("+0.########;-0.########;0");
     public string FeeFormatted => _entry.Fee == 0 ? "" : _entry.Fee.ToString("0.########");
     public string BalanceFormatted => _entry.Balance == 0 ? "" : _entry.Balance.ToString("0.########");
+    public string GbpRateFormatted => _gbpRateFormatted;
+    public string RateDateFormatted => _rateDateFormatted;
 
     public SolidColorBrush AmountColor => _entry.Amount >= 0
         ? new SolidColorBrush(Colors.Green)

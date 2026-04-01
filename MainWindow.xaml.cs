@@ -18,8 +18,8 @@ namespace CryptoTax2026;
 
 public sealed partial class MainWindow : Window
 {
-    private readonly TradeStorageService _storageService = new();
     private readonly KrakenApiService _krakenService = new();
+    private TradeStorageService _storageService = null!; // Initialized in LoadDataAsync with correct path
 
     private List<KrakenLedgerEntry> _ledger = new();
     private List<KrakenTrade> _trades = new(); // kept for export compatibility
@@ -31,6 +31,8 @@ public sealed partial class MainWindow : Window
     private CgtCalculationService? _lastCgtService; // cached for lightweight summary-only recalculation
 
     private AppWindow _appWindow = null!;
+
+    private bool _coffeePromptShown = false;
 
     public MainWindow()
     {
@@ -45,6 +47,7 @@ public sealed partial class MainWindow : Window
         SetTitleBar(AppTitleBar);
 
         Closed += MainWindow_Closed;
+        Activated += MainWindow_Activated;
 
         // Keyboard shortcuts
         Content.KeyboardAccelerators.Add(CreateAccelerator(VirtualKey.Number1, VirtualKeyModifiers.Control, (_, _) => NavigateToTab(0)));
@@ -60,35 +63,84 @@ public sealed partial class MainWindow : Window
         LoadDataAsync();
     }
 
+    private void MainWindow_Activated(object sender, WindowActivatedEventArgs e)
+    {
+        // Coffee prompt moved to end of LoadDataAsync() where UI is fully initialized
+    }
+
     private async void LoadDataAsync()
     {
-        _settings = await _storageService.LoadSettingsAsync();
-        _krakenService.SetCredentials(_settings.KrakenApiKey, _settings.KrakenApiSecret);
-
-        // Apply saved theme
-        if (Content is FrameworkElement root)
+        try
         {
-            root.RequestedTheme = _settings.Theme switch
+            // Check for custom data path configuration first
+            var customDataPath = TradeStorageService.LoadCustomDataPath();
+            _storageService = new TradeStorageService(customDataPath);
+
+            _settings = await _storageService.LoadSettingsAsync();
+
+            // Ensure consistency between config file and settings
+            if (!string.IsNullOrEmpty(customDataPath) && string.IsNullOrEmpty(_settings.CustomDataPath))
             {
-                "Light" => ElementTheme.Light,
-                "Dark" => ElementTheme.Dark,
-                _ => ElementTheme.Default
-            };
+                _settings.CustomDataPath = customDataPath;
+                await _storageService.SaveSettingsAsync(_settings);
+            }
+            else if (string.IsNullOrEmpty(customDataPath) && !string.IsNullOrEmpty(_settings.CustomDataPath))
+            {
+                // Update storage service if settings has a custom path but config file doesn't
+                _storageService = new TradeStorageService(_settings.CustomDataPath);
+                TradeStorageService.SaveCustomDataPath(_settings.CustomDataPath);
+            }
+
+            // Track first app use if not already set (AFTER determining final storage location)
+            if (!_settings.FirstAppUse.HasValue)
+            {
+                _settings.FirstAppUse = DateTimeOffset.UtcNow;
+                await _storageService.SaveSettingsAsync(_settings);
+            }
+
+            _krakenService.SetCredentials(_settings.KrakenApiKey ?? "", _settings.KrakenApiSecret ?? "");
+
+            // Apply saved theme
+            if (Content is FrameworkElement root)
+            {
+                root.RequestedTheme = _settings.Theme switch
+                {
+                    "Light" => ElementTheme.Light,
+                    "Dark" => ElementTheme.Dark,
+                    _ => ElementTheme.Default
+                };
+            }
+
+            RestoreWindowPosition();
+
+            if (_storageService.HasSavedLedger())
+            {
+                _ledger = await _storageService.LoadLedgerAsync();
+                await RecalculateWithCachedRatesAsync();
+            }
+
+            ContentFrame.Navigate(typeof(SettingsPage), this);
+            NavView.SelectedItem = NavView.MenuItems[0];
+
+            // Show coffee prompt after UI is fully loaded
+            if (!_coffeePromptShown)
+            {
+                _coffeePromptShown = true;
+                ShowCoffeePromptIfNeeded();
+            }
         }
-
-        RestoreWindowPosition();
-
-        if (_storageService.HasSavedLedger())
+        catch (Exception ex)
         {
-            _ledger = await _storageService.LoadLedgerAsync();
-
-            // On startup, try to recalculate using cached FX rates only (no downloads)
-            // User can click "Download FX Rates" to do a full download
-            await RecalculateWithCachedRatesAsync();
+            var dlg = new ContentDialog
+            {
+                Title = "Startup Error",
+                Content = ex.ToString(),
+                CloseButtonText = "Close"
+            };
+            dlg.XamlRoot = ContentFrame?.XamlRoot;
+            if (dlg.XamlRoot != null)
+                await dlg.ShowAsync();
         }
-
-        ContentFrame.Navigate(typeof(SettingsPage), this);
-        NavView.SelectedItem = NavView.MenuItems[0];
     }
 
     /// <summary>
@@ -124,13 +176,14 @@ public sealed partial class MainWindow : Window
         _warnings = new List<CalculationWarning>();
 
         // Create FX service — constructor restores _pairMap, then load all cached files
-        _fxService = new FxConversionService(_krakenService, _warnings);
+        _fxService = new FxConversionService(_krakenService, _warnings, _storageService.GetDataFolderPath(), _settings.FxRateType);
         _fxService.LoadAllFromDiskCache();
 
         var currencies = _ledger
             .Select(e => e.NormalisedAsset)
             .Where(a => !string.IsNullOrEmpty(a))
             .Distinct()
+            .OrderBy(a => a)
             .ToList();
 
         var earliest = _ledger.Min(e => e.DateTime);
@@ -178,7 +231,7 @@ public sealed partial class MainWindow : Window
         if (_ledger.Count == 0) return;
 
         var warnings = new List<CalculationWarning>();
-        var fxService = new FxConversionService(_krakenService, warnings);
+        var fxService = new FxConversionService(_krakenService, warnings, _storageService.GetDataFolderPath(), _settings.FxRateType);
         fxService.LoadAllFromDiskCache();
 
         var trades = _trades;
@@ -411,6 +464,51 @@ public sealed partial class MainWindow : Window
             _settings.AuditLog.RemoveRange(0, _settings.AuditLog.Count - 500);
     }
 
+    public void UpdateSettings(AppSettings newSettings)
+    {
+        _settings = newSettings;
+        _krakenService.SetCredentials(_settings.KrakenApiKey ?? "", _settings.KrakenApiSecret ?? "");
+
+        // Apply theme
+        if (Content is FrameworkElement root)
+        {
+            root.RequestedTheme = _settings.Theme switch
+            {
+                "Light" => ElementTheme.Light,
+                "Dark" => ElementTheme.Dark,
+                _ => ElementTheme.Default
+            };
+        }
+    }
+
+    public async Task UpdateDataPathAsync(string? newCustomPath)
+    {
+        var oldPath = _storageService.GetDataFolderPath();
+
+        // Create new storage service with the new path
+        var newStorageService = new TradeStorageService(newCustomPath);
+        var newPath = newStorageService.GetDataFolderPath();
+
+        if (oldPath != newPath)
+        {
+            // Migrate data from old location to new location
+            await newStorageService.MigrateDataAsync(oldPath);
+
+            // Update storage service
+            _storageService = newStorageService;
+
+            // Save settings to new location
+            _settings.CustomDataPath = newCustomPath;
+            await _storageService.SaveSettingsAsync(_settings);
+
+            // Reload ledger from new location if it exists
+            if (_storageService.HasSavedLedger())
+            {
+                _ledger = await _storageService.LoadLedgerAsync();
+            }
+        }
+    }
+
     public KrakenApiService KrakenService => _krakenService;
     public TradeStorageService StorageService => _storageService;
     public AppSettings Settings => _settings;
@@ -433,6 +531,15 @@ public sealed partial class MainWindow : Window
     {
         if (index >= 0 && index < NavView.MenuItems.Count)
             NavView.SelectedItem = NavView.MenuItems[index];
+    }
+
+    /// <summary>
+    /// Public method to navigate to the Settings page from other pages.
+    /// </summary>
+    public void NavigateToSettings()
+    {
+        NavView.SelectedItem = NavView.MenuItems[0]; // Settings page
+        ContentFrame.Navigate(typeof(SettingsPage), this);
     }
 
     private void RestoreWindowPosition()
@@ -472,5 +579,69 @@ public sealed partial class MainWindow : Window
         }
 
         await _storageService.SaveSettingsAsync(_settings);
+    }
+
+    private async void BuyMeCoffeeButton_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.BuyMeCoffeeClicked = true;
+        _settings.LastCoffeePrompt = DateTimeOffset.UtcNow;
+        await _storageService.SaveSettingsAsync(_settings);
+    }
+
+    public async void ShowCoffeePromptIfNeeded()
+    {
+        if (_settings.BuyMeCoffeeClicked)
+            return;
+
+        var now = DateTimeOffset.UtcNow;
+
+        // Don't show for the first 2 hours after first app use
+        if (_settings.FirstAppUse.HasValue && (now - _settings.FirstAppUse.Value).TotalHours < 2)
+            return;
+
+        if (_settings.LastCoffeePrompt.HasValue && (now - _settings.LastCoffeePrompt.Value).TotalDays < 14)
+            return;
+
+        _settings.LastCoffeePrompt = now;
+        await _storageService.SaveSettingsAsync(_settings);
+
+        var dialog = new ContentDialog
+        {
+            Title = "Support CryptoTax2026",
+            Content = "If you find this app useful, please consider buying me a coffee! If you click the button below, you won't see this message again (even if you don't contribute).\n\n☕ Buy me a coffee: https://buymeacoffee.com/raymondjstone",
+            CloseButtonText = "Close",
+            PrimaryButtonText = "Open Buy Me a Coffee",
+            DefaultButton = ContentDialogButton.Primary
+        };
+        dialog.PrimaryButtonClick += (s, e) =>
+        {
+            BuyMeCoffeeButton_Click(null!, null!);
+            var uri = new Uri("https://buymeacoffee.com/raymondjstone");
+            _ = Windows.System.Launcher.LaunchUriAsync(uri);
+        };
+        dialog.XamlRoot = ContentFrame.XamlRoot;
+        if (dialog.XamlRoot == null) return;
+        await dialog.ShowAsync();
+    }
+
+    /// <summary>
+    /// Updates the FX rate calculation method and recalculates all conversions.
+    /// This ensures HMRC compliance with the selected rate type.
+    /// </summary>
+    public async Task UpdateFxRateTypeAsync(FxRateType newRateType)
+    {
+        _settings.FxRateType = newRateType;
+        if (_fxService != null)
+        {
+            _fxService.SetRateType(newRateType);
+        }
+
+        // Save the setting
+        await _storageService.SaveSettingsAsync(_settings);
+
+        // Recalculate with new rate type
+        await RecalculateWithCachedRatesAsync();
+
+        AddAuditEntry("FX Rate Type", $"Changed rate calculation method to {newRateType}");
     }
 }

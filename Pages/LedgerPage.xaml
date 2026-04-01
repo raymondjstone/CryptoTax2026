@@ -62,6 +62,8 @@
                             <ColumnDefinition Width="120" />
                             <ColumnDefinition Width="140" />
                             <ColumnDefinition Width="100" />
+                            <ColumnDefinition Width="100" />
+                            <ColumnDefinition Width="140" />
                             <ColumnDefinition Width="140" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
@@ -72,8 +74,10 @@
                         <TextBlock Grid.Column="4" Text="SubType" FontWeight="SemiBold" />
                         <TextBlock Grid.Column="5" Text="Amount" FontWeight="SemiBold" />
                         <TextBlock Grid.Column="6" Text="Fee" FontWeight="SemiBold" />
-                        <TextBlock Grid.Column="7" Text="Balance" FontWeight="SemiBold" />
-                        <TextBlock Grid.Column="8" Text="Ref ID" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="7" Text="GBP Rate" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="8" Text="Rate Date" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="9" Text="Balance" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="10" Text="Ref ID" FontWeight="SemiBold" />
                     </Grid>
                 </DataTemplate>
             </ListView.HeaderTemplate>
@@ -88,6 +92,8 @@
                             <ColumnDefinition Width="120" />
                             <ColumnDefinition Width="140" />
                             <ColumnDefinition Width="100" />
+                            <ColumnDefinition Width="100" />
+                            <ColumnDefinition Width="140" />
                             <ColumnDefinition Width="140" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
@@ -98,8 +104,10 @@
                         <TextBlock Grid.Column="4" Text="{Binding SubType}" Opacity="0.7" />
                         <TextBlock Grid.Column="5" Text="{Binding AmountFormatted}" Foreground="{Binding AmountColor}" />
                         <TextBlock Grid.Column="6" Text="{Binding FeeFormatted}" Opacity="0.7" />
-                        <TextBlock Grid.Column="7" Text="{Binding BalanceFormatted}" Opacity="0.7" />
-                        <TextBlock Grid.Column="8" Text="{Binding RefId}" Opacity="0.5" FontSize="11"
+                        <TextBlock Grid.Column="7" Text="{Binding GbpRateFormatted}" Opacity="0.7" FontSize="11" />
+                        <TextBlock Grid.Column="8" Text="{Binding RateDateFormatted}" Opacity="0.7" FontSize="11" />
+                        <TextBlock Grid.Column="9" Text="{Binding BalanceFormatted}" Opacity="0.7" />
+                        <TextBlock Grid.Column="10" Text="{Binding RefId}" Opacity="0.5" FontSize="11"
                                    TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" />
                     </Grid>
                 </DataTemplate>

@@ -15,6 +15,7 @@ public class AppSettings
     public Dictionary<string, decimal> CostBasisOverrides { get; set; } = new(); // TradeId -> GBP cost
     public string Theme { get; set; } = "Default"; // "Default", "Light", "Dark"
     public string? CustomDataPath { get; set; } // null = default %LocalAppData%, set to OneDrive path for sync
+    public FxRateType FxRateType { get; set; } = FxRateType.Average; // HMRC compliant rate type
 
     // Data freshness timestamps
     public DateTimeOffset? LastLedgerDownload { get; set; }
@@ -29,6 +30,9 @@ public class AppSettings
     public int? WindowWidth { get; set; }
     public int? WindowHeight { get; set; }
     public bool IsMaximized { get; set; }
+    public bool BuyMeCoffeeClicked { get; set; } = false;
+    public DateTimeOffset? LastCoffeePrompt { get; set; }
+    public DateTimeOffset? FirstAppUse { get; set; } // Track when the app was first used
 }
 
 public class TaxYearUserInput
@@ -89,4 +93,27 @@ public class ManualLedgerEntry
     public decimal Amount { get; set; }
     public decimal Fee { get; set; }
     public string NormalisedAsset { get; set; } = "";
+}
+
+/// <summary>
+/// HMRC-compliant exchange rate calculation methods for cryptocurrency valuations.
+/// These methods determine which price from daily OHLC data is used for tax calculations.
+/// All rates are sourced from daily candles (24-hour periods) with 00:00:00 timestamps representing end-of-day positions.
+/// </summary>
+public enum FxRateType
+{
+    /// <summary>Daily average price - calculated as (High + Low) / 2 (default)</summary>
+    Average,
+
+    /// <summary>Daily opening price - first price of the trading day</summary>
+    Open,
+
+    /// <summary>Daily high price - highest price during the trading day</summary>
+    High,
+
+    /// <summary>Daily low price - lowest price during the trading day</summary>
+    Low,
+
+    /// <summary>Daily closing price - last price of the trading day</summary>
+    Close
 }

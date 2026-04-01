@@ -2,6 +2,8 @@
 
 A Windows desktop application that connects to the Kraken cryptocurrency exchange API, downloads your complete trade history, and calculates UK Capital Gains Tax liabilities for each tax year.
 
+[![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://buymeacoffee.com/raymondjstone)
+
 ---
 
 ## IMPORTANT DISCLAIMER
@@ -25,11 +27,16 @@ A Windows desktop application that connects to the Kraken cryptocurrency exchang
 - Caches ledger data locally so you don't need to re-download each time
 - Resumes downloads from where it left off
 - **Imports CSV trade history** from other exchanges: Coinbase, Binance, Crypto.com, and Bybit
-- **Converts all amounts to GBP** using historical daily exchange rates downloaded from Kraken's public OHLC API, with fallback to CryptoCompare for pairs not available on Kraken
-  - USD, EUR, and other fiat currencies converted at the correct daily rate
+- **Converts all amounts to GBP** using historical daily exchange rates with intelligent source prioritization:
+  - **Primary source**: Kraken's public OHLC API for directly available pairs (e.g., BTC/GBP, ETH/GBP, ADA/GBP)
+  - **Automatic discovery**: Dynamically discovers all available Kraken FX pairs on startup, filtering for relevant quote currencies (GBP, USD, EUR, stablecoins)
+  - **Fallback source**: CryptoCompare API for assets not available on Kraken
+  - **Smart routing**: USD, EUR, and other fiat currencies converted at daily rates; crypto assets use direct GBP pairs when available, otherwise route via USD + USD/GBP
   - **USDT is NOT treated as USD** — it is converted via USDT/USD rate first, then USD/GBP (two-step conversion)
-  - Crypto-to-crypto trades valued using direct GBP pair or via USD pair + USD/GBP
-  - FX rates are cached locally on disk
+  - **HMRC-compliant rate calculation methods**: Choose from Daily Open, High, Low, Close, Average, or Nearest Live Rate
+  - **Consistent rate application**: Once selected, the same method is applied to all transactions for HMRC compliance
+  - **Rate transparency**: Ledger view and tax year disposal details show the exact GBP rate used, its timestamp, and source (Kraken/CryptoCompare) for each transaction
+  - **Persistent caching**: FX rates cached locally on disk with source tracking to minimize API calls
 - Calculates UK Capital Gains Tax for each tax year using HMRC rules:
   - **Same-day rule** — matches disposals with acquisitions on the same day
   - **Bed & breakfast rule (30-day rule)** — matches disposals with acquisitions within 30 days after
@@ -93,6 +100,70 @@ Scottish and Welsh income tax bands only affect income tax. When you enter your 
 7. Click Download FX Rates to fetch historical exchange rates
 8. Navigate to each tax year tab and enter your taxable income for that year
 
+## Automation / Scheduled Data Sync
+
+The application supports headless operation for scheduled data synchronization. This allows you to keep your data current automatically without needing to remember to run the application manually.
+
+### Command Line Usage
+
+```bash
+CryptoTax2026.exe --SyncData
+```
+
+This will:
+1. Start the application in headless mode (no UI)
+2. Load your saved API credentials and settings
+3. Download new ledger entries from Kraken (incremental sync)
+4. Update FX rates for all currencies in your ledger
+5. Display progress and status information in the console
+6. Exit automatically when complete
+
+### Scheduling with Windows Task Scheduler
+
+To automatically sync data daily:
+
+1. Open Windows Task Scheduler
+2. Create a new Basic Task
+3. Set it to run daily at your preferred time
+4. Set the action to start the program:
+   - **Program**: `C:\Path\To\CryptoTax2026.exe`
+   - **Arguments**: `--SyncData`
+   - **Start in**: `C:\Path\To\` (directory containing the exe)
+5. Enable "Run whether user is logged on or not" if desired
+
+### Prerequisites for Automation
+
+- Kraken API credentials must be configured via the UI first
+- The application must have been run at least once in normal mode
+- Your API key must have "Query Ledger/Trade Data" permission
+
+### Example Output
+
+```
+CryptoTax2026: Starting sync mode...
+Testing Kraken API connection...
+✓ Kraken API connection successful
+Downloading ledger data...
+  Downloading ledger (offset 0)...
+  Downloading ledger (offset 50)...
+✓ Ledger updated: 15 new entries, 1,247 total entries
+Downloading FX rates...
+  Loading FX rates: GBPUSD (1/8)...
+  Loading FX rates: ADAGBP (2/8)...
+  ...
+✓ FX rates updated for 8 currencies
+✓ Sync completed successfully
+```
+
+### Error Handling
+
+If the sync fails (e.g., API connection issues, invalid credentials), the application will:
+- Display the error message in the console
+- Exit with a non-zero exit code
+- Log details for troubleshooting
+
+This makes it suitable for monitoring in automated environments.
+
 ## Kraken API Key
 
 To create an API key:
@@ -115,29 +186,47 @@ Imported entries are merged with Kraken ledger data for CGT calculation.
 
 ## Data Storage
 
-All data is stored locally on your machine at:
+All data is stored locally on your machine. By default, the location is:
 
 ```
 %LocalAppData%\CryptoTax2026\
 ```
 
-This includes:
-- `ledger.json` — cached Kraken ledger history
-- `trades.json` — cached trade history (legacy)
-- `settings.json` — your API credentials, tax year inputs, cost overrides, disposal notes, delisted assets, imported CSV entries, and audit log
-- `fx_cache/` — cached daily FX rates
-- `pairmap.json` — mapping of assets to their FX rate source (Kraken pair or CryptoCompare)
+### Custom Data Path
 
-**Your API credentials are stored in plain text on your local machine. Do not share this folder.**
+You can configure a custom storage location via the Settings page. This is useful for:
+- Storing data on a different drive
+- Using a cloud-synced folder (Dropbox, OneDrive, etc.)
+- Keeping data with your other financial records
+
+When you set a custom path, the application creates a pointer file at the default location that remembers your custom choice.
+
+### Data Files
+
+The storage folder contains:
+- `settings.json` — your API credentials, tax year inputs, cost overrides, disposal notes, delisted assets, imported CSV entries, and audit log
+- `ledger.json` — cached Kraken ledger history
+- `trades.json` — cached trade history (legacy, kept for compatibility)
+- `fx_cache/` — subdirectory containing cached daily FX rates from Kraken and CryptoCompare
+  - Individual files for each currency pair (e.g., `BTCGBP.json`, `ADAUSD.json`)
+  - Automatic cleanup of stale rate files older than 2 years
+- `pairmap.json` — tracks which FX rate source (Kraken vs CryptoCompare) each asset uses
+- `custom_path.json` — pointer file (stored in default location only) that points to your custom data folder
+
+### Security Note
+
+**Your Kraken API credentials are stored in plain text in the `settings.json` file. Do not share this folder or file with others.**
+
+The API key only has "Query Ledger/Trade Data" permission and cannot be used for trading or withdrawals, but it could still allow someone to view your transaction history.
 
 ## Known Limitations
 
-- FX conversion uses daily closing prices from Kraken's OHLC data (or CryptoCompare fallback), not the exact rate at the moment of the trade. This may differ slightly from the actual rate.
-- Crypto deposits from external wallets are valued at market rate on the date received. If you transferred from another exchange where you bought at a different price, the cost basis will be wrong — use the cost basis override feature to correct it.
-- Does not handle transfers between exchanges (no way to automatically link deposit on Kraken to purchase on another exchange).
-- Does not handle DeFi transactions outside supported exchanges.
-- Does not handle the remittance basis or any non-standard tax situations.
-- FX rates for less common altcoins may not be available — the app will warn you when this happens.
+- **FX rate timing**: FX conversion uses daily rates from the configured source (Kraken OHLC or CryptoCompare), not the exact rate at the moment of the trade. This may differ slightly from the actual rate but is acceptable for HMRC purposes when applied consistently.
+- **Limited pair coverage**: While the app automatically discovers available Kraken FX pairs and falls back to CryptoCompare, some obscure altcoins may not have historical rate data available — the app will warn you when this happens.
+- **Deposit valuation**: Crypto deposits from external wallets are valued at market rate on the date received. If you transferred from another exchange where you bought at a different price, the cost basis will be wrong — use the cost basis override feature to correct it.
+- **Cross-exchange transfers**: Does not handle transfers between exchanges (no way to automatically link deposit on Kraken to purchase on another exchange).
+- **DeFi limitations**: Does not handle DeFi transactions, staking on other platforms, or complex smart contract interactions outside supported exchanges.
+- **Standard tax treatment only**: Does not handle the remittance basis, trading as a business, or other non-standard UK tax situations.
 
 ## Tests
 

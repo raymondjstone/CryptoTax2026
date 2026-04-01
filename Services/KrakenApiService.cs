@@ -372,13 +372,71 @@ public class KrakenApiService
     // ========== PUBLIC API: OHLC for FX rates ==========
 
     /// <summary>
+    /// Gets all currently tradeable asset pairs from Kraken's public API.
+    /// Returns a dictionary mapping pair names to their details.
+    /// No API key needed. Used for dynamic pair discovery.
+    /// </summary>
+    public async Task<Dictionary<string, KrakenAssetPairInfo>> GetAssetPairsAsync(CancellationToken ct = default)
+    {
+        var url = "/0/public/AssetPairs";
+        var response = await _httpClient.GetAsync(url, ct);
+        var json = await response.Content.ReadAsStringAsync(ct);
+
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        if (root.TryGetProperty("error", out var errors) && errors.GetArrayLength() > 0)
+        {
+            var errMsg = string.Join(", ", errors.EnumerateArray().Select(e => e.GetString()));
+            throw new Exception($"Kraken AssetPairs error: {errMsg}");
+        }
+
+        var pairs = new Dictionary<string, KrakenAssetPairInfo>();
+
+        if (root.TryGetProperty("result", out var result))
+        {
+            foreach (var prop in result.EnumerateObject())
+            {
+                var pairName = prop.Name;
+                var details = prop.Value;
+
+                // Extract the base and quote asset names from the pair info
+                var baseAsset = details.TryGetProperty("base", out var baseProp) ? baseProp.GetString() : "";
+                var quoteAsset = details.TryGetProperty("quote", out var quoteProp) ? quoteProp.GetString() : "";
+                var altName = details.TryGetProperty("altname", out var altProp) ? altProp.GetString() : "";
+                var wsName = details.TryGetProperty("wsname", out var wsProp) ? wsProp.GetString() : "";
+
+                // Check if the pair is active for trading
+                var status = details.TryGetProperty("status", out var statusProp) ? statusProp.GetString() : "";
+
+                if (!string.IsNullOrEmpty(baseAsset) && !string.IsNullOrEmpty(quoteAsset))
+                {
+                    pairs[pairName] = new KrakenAssetPairInfo
+                    {
+                        PairName = pairName,
+                        BaseAsset = baseAsset,
+                        QuoteAsset = quoteAsset,
+                        AltName = altName ?? "",
+                        WsName = wsName ?? "",
+                        Status = status ?? "",
+                        IsActive = status == "online"
+                    };
+                }
+            }
+        }
+
+        return pairs;
+    }
+
+    /// <summary>
     /// Downloads daily OHLC data from Kraken's public API for a given pair.
     /// Returns list of (timestamp, open, high, low, close, volume) tuples.
     /// No API key needed. Rate limited to ~1 req/sec for public endpoints.
+    /// Uses daily candles (1440 minute intervals) for HMRC-compliant daily rates.
     /// </summary>
-    public async Task<List<OhlcCandle>> GetOhlcDataAsync(string pair, long sinceUnixTime = 0, CancellationToken ct = default, int interval = 240)
+    public async Task<List<OhlcCandle>> GetOhlcDataAsync(string pair, long sinceUnixTime = 0, CancellationToken ct = default, int interval = 1440)
     {
-        var url = $"/0/public/OHLC?pair={pair}&interval={interval}"; // 240 = 4-hourly by default
+        var url = $"/0/public/OHLC?pair={pair}&interval={interval}"; // 1440 = daily (24-hour) intervals
         if (sinceUnixTime > 0)
             url += $"&since={sinceUnixTime}";
 
@@ -433,6 +491,19 @@ public class OhlcCandle
     public decimal Close { get; set; }
 
     public DateTimeOffset DateTime => DateTimeOffset.FromUnixTimeSeconds(Timestamp);
+
+    /// <summary>
+    /// Gets the rate value based on the specified FX rate type for HMRC compliance
+    /// </summary>
+    public decimal GetRate(FxRateType rateType) => rateType switch
+    {
+        FxRateType.Open => Open,
+        FxRateType.High => High,
+        FxRateType.Low => Low,
+        FxRateType.Close => Close,
+        FxRateType.Average => (High + Low) / 2m,
+        _ => Close
+    };
 }
 
 // ========== Response types ==========
@@ -471,4 +542,15 @@ public class KrakenLedgerResult
 
     [JsonPropertyName("count")]
     public int Count { get; set; }
+}
+
+public class KrakenAssetPairInfo
+{
+    public string PairName { get; set; } = "";
+    public string BaseAsset { get; set; } = "";
+    public string QuoteAsset { get; set; } = "";
+    public string AltName { get; set; } = "";
+    public string WsName { get; set; } = "";
+    public string Status { get; set; } = "";
+    public bool IsActive { get; set; }
 }

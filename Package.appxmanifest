@@ -1,6 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities" xmlns:systemai="http://schemas.microsoft.com/appx/manifest/systemai/windows10" IgnorableNamespaces="uap rescap systemai">
-  <Identity Name="c307954b-7401-4c0a-86b3-725724f09e64" Publisher="CN=passp" Version="1.0.9.0" />
+  <Identity Name="c307954b-7401-4c0a-86b3-725724f09e64" Publisher="CN=passp" Version="1.0.11.0" />
   <mp:PhoneIdentity PhoneProductId="c307954b-7401-4c0a-86b3-725724f09e64" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
   <Properties>
     <DisplayName>CryptoTax2026</DisplayName>

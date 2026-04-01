@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
@@ -20,6 +20,10 @@
     <Compile Remove="CryptoTax2026.Tests\**" />
     <Content Remove="CryptoTax2026.Tests\**" />
     <None Remove="CryptoTax2026.Tests\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Page Remove="SplashScreen.xaml" />
   </ItemGroup>
 
   <ItemGroup>
@@ -54,6 +58,15 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260317003" />
     <PackageReference Include="QuestPDF" Version="2024.12.3" />
   </ItemGroup>
+  <ItemGroup>
+    <None Update="SplashScreen.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Page Include="SplashScreen.xaml" />
+  </ItemGroup>
 
   <!--
     Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution
@@ -83,9 +96,7 @@
     </PropertyGroup>
 
     <!-- Read current version from manifest -->
-    <XmlPeek XmlInputPath="$(_ManifestPath)"
-             Query="/m:Package/m:Identity/@Version"
-             Namespaces="&lt;Namespace Prefix='m' Uri='http://schemas.microsoft.com/appx/manifest/foundation/windows10' /&gt;">
+    <XmlPeek XmlInputPath="$(_ManifestPath)" Query="/m:Package/m:Identity/@Version" Namespaces="&lt;Namespace Prefix='m' Uri='http://schemas.microsoft.com/appx/manifest/foundation/windows10' /&gt;">
       <Output TaskParameter="Result" ItemName="_CurrentVersion" />
     </XmlPeek>
 
@@ -100,10 +111,7 @@
     </PropertyGroup>
 
     <!-- Write new version back to manifest -->
-    <XmlPoke XmlInputPath="$(_ManifestPath)"
-             Query="/m:Package/m:Identity/@Version"
-             Value="$(_NewVersion)"
-             Namespaces="&lt;Namespace Prefix='m' Uri='http://schemas.microsoft.com/appx/manifest/foundation/windows10' /&gt;" />
+    <XmlPoke XmlInputPath="$(_ManifestPath)" Query="/m:Package/m:Identity/@Version" Value="$(_NewVersion)" Namespaces="&lt;Namespace Prefix='m' Uri='http://schemas.microsoft.com/appx/manifest/foundation/windows10' /&gt;" />
 
     <!-- Sync assembly/file version -->
     <PropertyGroup>
@@ -112,6 +120,6 @@
       <Version>$(_NewVersion)</Version>
     </PropertyGroup>
 
-    <Message Importance="High" Text="Version auto-incremented: $(_VersionStr) -> $(_NewVersion)" />
+    <Message Importance="High" Text="Version auto-incremented: $(_VersionStr) -&gt; $(_NewVersion)" />
   </Target>
 </Project>
