@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="WixToolset.Sdk/5.0.2">
+
+  <PropertyGroup>
+    <OutputName>CryptoTax2026-Setup-x64</OutputName>
+    <OutputType>package</OutputType>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <AppPublishDir>$(MSBuildProjectDirectory)\bin\publish\msi-x64\</AppPublishDir>
+    <OutputPath>$(MSBuildProjectDirectory)\bin\installer\</OutputPath>
+    <DefineConstants>SourceDir=$(AppPublishDir.TrimEnd('\'))</DefineConstants>
+    <SuppressSpecificWarnings>1076</SuppressSpecificWarnings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Heat" Version="5.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="HarvestedFiles.wxs" />
+  </ItemGroup>
+
+  <!-- Publish the app before harvesting -->
+  <Target Name="PublishApp" BeforeTargets="HarvestDirectory;BeforeBuild">
+    <Message Text="Publishing CryptoTax2026 for win-x64..." Importance="high" />
+    <Exec Command="dotnet publish &quot;$(MSBuildProjectDirectory)\CryptoTax2026.csproj&quot; -c Release -r win-x64 --self-contained true -o &quot;$(AppPublishDir.TrimEnd('\'))&quot; -p:GenerateAppxPackageOnBuild=false -p:EnableMsixTooling=false -p:Platform=x64"
+          WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+
+  <!-- HeatWave: harvest all files from the publish directory -->
+  <ItemGroup>
+    <HarvestDirectory Include="$(AppPublishDir)">
+      <ComponentGroupName>HarvestedFiles</ComponentGroupName>
+      <DirectoryRefId>INSTALLFOLDER</DirectoryRefId>
+      <SuppressRootDirectory>true</SuppressRootDirectory>
+      <SuppressRegistry>true</SuppressRegistry>
+      <PreprocessorVariable>var.SourceDir</PreprocessorVariable>
+    </HarvestDirectory>
+  </ItemGroup>
+
+</Project>

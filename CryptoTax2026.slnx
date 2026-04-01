@@ -1,4 +1,4 @@
-<Solution>
+﻿<Solution>
   <Configurations>
     <Platform Name="ARM64" />
     <Platform Name="x64" />
@@ -13,4 +13,9 @@
     <Platform Solution="*|x86" Project="x86" />
     <Deploy />
   </Project>
+  <!-- Installer projects: NOT in any solution platform build -->
+  <!-- Right-click project -> Build to create MSI on demand -->
+  <Project Path="CryptoTax2026.Installer.x64.wixproj" />
+  <Project Path="CryptoTax2026.Installer.ARM64.wixproj" />
+  <Project Path="CryptoTax2026.Installer.x86.wixproj" />
 </Solution>

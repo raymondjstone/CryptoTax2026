@@ -9,7 +9,7 @@
     <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
     <UseWinUI>true</UseWinUI>
     <WinUISDKReferences>false</WinUISDKReferences>
-    <EnableMsixTooling>true</EnableMsixTooling>
+    <EnableMsixTooling Condition="'$(GenerateAppxPackageOnBuild)' != 'false'">true</EnableMsixTooling>
     <Nullable>enable</Nullable>
     <WindowsAppSdkBootstrapInitialize>false</WindowsAppSdkBootstrapInitialize>
     <WindowsAppSdkDeploymentManagerInitialize>false</WindowsAppSdkDeploymentManagerInitialize>
@@ -49,6 +49,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include=".github\copilot-instructions.md" />
+    <None Include="CryptoTax2026.Installer.ARM64.wixproj" />
+    <None Include="CryptoTax2026.Installer.x64.wixproj" />
+    <None Include="CryptoTax2026.Installer.x86.wixproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="ClosedXML" Version="0.104.2" />
@@ -84,6 +87,13 @@
     <!-- Trimming disabled for WinUI apps due to reflection and XAML usage -->
     <!-- Use publish profiles to control trimming per deployment target -->
   </PropertyGroup>
+
+  <!-- MSI Build Integration -->
+  <Target Name="BuildMSI" AfterTargets="Publish" Condition="'$(PublishProtocol)' == 'FileSystem' And '$(GenerateAppxPackageOnBuild)' != 'true'">
+    <Message Text="Building MSI installer..." Importance="high" />
+    <Exec Command="powershell -ExecutionPolicy Bypass -File BuildMSI.ps1 -Platform $(Platform)" WorkingDirectory="$(MSBuildProjectDirectory)" ContinueOnError="false" />
+    <Message Text="MSI installer created successfully!" Importance="high" />
+  </Target>
 
   <!--
     Auto-increment version on publish. Reads the current version from Package.appxmanifest,

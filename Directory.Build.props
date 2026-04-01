@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <!-- Isolate each WiX installer project's NuGet restore artifacts from the main project's obj\ folder -->
+  <PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.wixproj'">
+    <BaseIntermediateOutputPath>$(MSBuildProjectDirectory)\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+    <!-- Exclude the entire shared obj\ folder from the WiX SDK **/*.wxs auto-glob so that
+         harvested wxs files from sibling installer projects are never picked up as compile inputs.
+         DefaultItemExcludes is appended to (not reset) by wix.targets, so this value survives. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj\**</DefaultItemExcludes>
+  </PropertyGroup>
+</Project>
