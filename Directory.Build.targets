@@ -1,21 +1,21 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project>
   <!--
-    Reads the FileVersion from the published CryptoTax2026.exe and injects it as
-    $(var.ProductVersion) so Installer.wxs can use it for the Package Version attribute.
-    Runs for all .wixproj files after PublishApp and before harvesting/compilation.
+    Reads the Version from Package.appxmanifest and injects it as $(var.ProductVersion)
+    so Installer.wxs can use it for the Package Version attribute.  This ensures the MSI
+    version always matches the last MSIX build.
+    Runs for all .wixproj files before harvesting/compilation.
   -->
   <Target Name="GetAppVersion"
-          DependsOnTargets="PublishApp"
           BeforeTargets="HarvestDirectory;CoreCompile"
           Condition="'$(MSBuildProjectExtension)' == '.wixproj'">
-    <Exec Command="powershell -NoProfile -Command &quot;(Get-Item '$(AppPublishDir)CryptoTax2026.exe').VersionInfo.FileVersion&quot;"
-          ConsoleToMSBuild="true"
-          WorkingDirectory="$(MSBuildProjectDirectory)">
-      <Output TaskParameter="ConsoleOutput" PropertyName="_RawAppVersion" />
-    </Exec>
+    <XmlPeek XmlInputPath="$(MSBuildProjectDirectory)\Package.appxmanifest"
+             Query="/m:Package/m:Identity/@Version"
+             Namespaces="&lt;Namespace Prefix='m' Uri='http://schemas.microsoft.com/appx/manifest/foundation/windows10' /&gt;">
+      <Output TaskParameter="Result" ItemName="_ManifestVersionItems" />
+    </XmlPeek>
     <PropertyGroup>
-      <AppProductVersion>$(_RawAppVersion.Trim())</AppProductVersion>
+      <AppProductVersion>@(_ManifestVersionItems)</AppProductVersion>
       <DefineConstants>$(DefineConstants);ProductVersion=$(AppProductVersion)</DefineConstants>
     </PropertyGroup>
     <Message Text="MSI product version: $(AppProductVersion)" Importance="high" />

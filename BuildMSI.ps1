@@ -82,7 +82,8 @@ if ($LASTEXITCODE -ne 0) {
 # Step 4: Build the MSI
 Write-Host "Building MSI package..." -ForegroundColor Yellow
 $outputName = "CryptoTax2026-$Platform.msi"
-$productVersion = (Get-Item "bin\publish\msi\CryptoTax2026.exe").VersionInfo.FileVersion
+[xml]$manifest = Get-Content "Package.appxmanifest"
+$productVersion = $manifest.Package.Identity.Version
 Write-Host "Product version: $productVersion" -ForegroundColor Cyan
 wix build "Installer.wxs" "bin\buildmsi-temp\HarvestedFiles.wxs" -o "bin\installer\$outputName" -arch $Platform.ToLower() -d "ProductVersion=$productVersion"
 
