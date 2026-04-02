@@ -19,6 +19,13 @@
     <Compile Remove="HarvestedFiles.wxs" />
   </ItemGroup>
 
+  <!-- Build first to generate resources.pri (requires MSIX tooling active) -->
+  <Target Name="BuildApp" BeforeTargets="PublishApp">
+    <Message Text="Building CryptoTax2026 to generate resources.pri..." Importance="high" />
+    <Exec Command="dotnet build &quot;$(MSBuildProjectDirectory)\CryptoTax2026.csproj&quot; -c Release -p:Platform=ARM64"
+          WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+
   <!-- Publish the app before harvesting -->
   <Target Name="PublishApp" BeforeTargets="HarvestDirectory;BeforeBuild">
     <Message Text="Publishing CryptoTax2026 for win-arm64..." Importance="high" />

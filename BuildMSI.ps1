@@ -22,7 +22,15 @@ if (Test-Path "bin\buildmsi-temp") {
     Remove-Item -Recurse -Force "bin\buildmsi-temp"
 }
 
-# Step 2: Publish the application
+# Step 2: Build to generate resources.pri (requires MSIX tooling active)
+Write-Host "Building to generate resources.pri..." -ForegroundColor Yellow
+dotnet build "CryptoTax2026.csproj" -c $Configuration -p:Platform=$Platform
+
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to build application"
+}
+
+# Step 3: Publish the application (MSIX tooling disabled to avoid packaging)
 Write-Host "Publishing application..." -ForegroundColor Yellow
 dotnet publish "CryptoTax2026.csproj" -c $Configuration -r "win-$Platform" --self-contained true -o "bin\publish\msi" -p:GenerateAppxPackageOnBuild=false -p:EnableMsixTooling=false -p:Platform=$Platform
 
