@@ -685,14 +685,14 @@ public class FxConversionService
         {
             while (!ct.IsCancellationRequested)
             {
-                var candles = await _krakenApi.GetOhlcDataAsync(krakenPair, currentSince, ct, interval: 1440);
+                var candles = await _krakenApi.GetOhlcDataAsync(krakenPair, currentSince, ct);
 
                 if (candles.Count == 0)
                     break;
 
                 allCandles.AddRange(candles);
 
-                if (candles.Count < 720) // Keep original threshold - daily candles may still return many results
+                if (candles.Count < 720)
                     break;
 
                 currentSince = candles.Last().Timestamp;
@@ -1038,15 +1038,23 @@ public class FxConversionService
         {
             if (cacheOnly) return false;
 
-            // Only extend if the cached data doesn't cover the latest needed date.
-            // 7-day buffer handles weekends and short data gaps.
+            var earliestCached = DateTimeOffset.FromUnixTimeSeconds(rates.Keys.First());
             var latestCached = DateTimeOffset.FromUnixTimeSeconds(rates.Keys.Last());
-            if (latestCached >= latestNeeded.AddDays(-7))
+
+            // Check both directions: does the cache cover back to 'earliest' AND forward to 'latestNeeded'?
+            // 7-day buffer handles weekends/holidays and short data gaps.
+            bool needsHistoricalBackfill = earliestCached > earliest.AddDays(7);
+            bool needsForwardExtension = latestCached < latestNeeded.AddDays(-7);
+
+            if (!needsHistoricalBackfill && !needsForwardExtension)
                 return false; // Already sufficient — no download needed
 
             if (!cacheKey.StartsWith("CC_", StringComparison.OrdinalIgnoreCase))
             {
-                await DownloadAndAppendAsync(cacheKey, rates.Keys.Last(), ct);
+                if (needsHistoricalBackfill)
+                    await DownloadAndPrependAsync(cacheKey, earliest, rates, ct);
+                else if (needsForwardExtension)
+                    await DownloadAndAppendAsync(cacheKey, rates.Keys.Last(), ct);
                 return true;
             }
 
@@ -1054,8 +1062,9 @@ public class FxConversionService
             var ccParts = cacheKey.Split('_');
             if (ccParts.Length == 3)
             {
-                var earliestCc = DateTimeOffset.FromUnixTimeSeconds(rates.Keys.First());
-                if (await TryDownloadCryptoCompareAsync(ccParts[1], ccParts[2], cacheKey, earliestCc, ct, forceRefresh: true))
+                // If backfill needed, use the earlier start date so re-download covers the full period
+                var ccEarliest = needsHistoricalBackfill ? earliest : earliestCached;
+                if (await TryDownloadCryptoCompareAsync(ccParts[1], ccParts[2], cacheKey, ccEarliest, ct, forceRefresh: true))
                     return true;
             }
             return false;
@@ -1082,7 +1091,7 @@ public class FxConversionService
     {
         try
         {
-            var candles = await _krakenApi.GetOhlcDataAsync(krakenPair, sinceTimestamp, ct, interval: 240);
+            var candles = await _krakenApi.GetOhlcDataAsync(krakenPair, sinceTimestamp, ct);
             if (candles.Count > 0 && _rateCache.TryGetValue(krakenPair, out var existing))
             {
                 foreach (var candle in candles)
@@ -1093,6 +1102,47 @@ public class FxConversionService
         catch
         {
             // Non-critical — we already have cached data
+        }
+    }
+
+    /// <summary>
+    /// Downloads daily candles from Kraken starting from <paramref name="earliest"/> and merges
+    /// ALL returned candles into the cache regardless of existing date coverage.
+    /// One API call yields up to 720 daily candles (~2 years), so a single request covers
+    /// both the historical gap and any forward extension simultaneously.
+    /// </summary>
+    private async Task DownloadAndPrependAsync(
+        string krakenPair, DateTimeOffset earliest,
+        SortedList<long, OhlcCandle> rates, CancellationToken ct)
+    {
+        try
+        {
+            var currentSince = earliest.AddDays(-7).ToUnixTimeSeconds();
+            bool updated = false;
+
+            while (!ct.IsCancellationRequested)
+            {
+                var candles = await _krakenApi.GetOhlcDataAsync(krakenPair, currentSince, ct);
+                if (candles.Count == 0) break;
+
+                foreach (var c in candles)
+                    rates[c.Timestamp] = c;
+                updated = true;
+
+                if (candles.Count < 720)
+                    break;
+
+                currentSince = candles.Last().Timestamp;
+                await Task.Delay(1500, ct);
+            }
+
+            if (updated)
+                SaveToCache(krakenPair, rates);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch
+        {
+            // Non-critical — we already have cached data for the recent period
         }
     }
 

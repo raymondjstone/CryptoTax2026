@@ -834,9 +834,9 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="P&amp;L by Asset" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
-                        <Button x:Name="AssetPnlCollapseBtn" Grid.Column="1" Content="▲" Click="AssetPnlCollapse_Click" Padding="8,4" />
+                        <Button x:Name="AssetPnlCollapseBtn" Grid.Column="1" Content="▼" Click="AssetPnlCollapse_Click" Padding="8,4" />
                     </Grid>
-                    <StackPanel x:Name="AssetPnlContent" Spacing="8">
+                        <StackPanel x:Name="AssetPnlContent" Spacing="8" Visibility="Collapsed">
                         <ListView x:Name="AssetPnlList" SelectionMode="None" IsItemClickEnabled="False">
                             <ListView.HeaderTemplate>
                                 <DataTemplate>

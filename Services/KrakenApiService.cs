@@ -183,117 +183,6 @@ public class KrakenApiService
         return entries;
     }
 
-    /// <summary>
-    /// Downloads trades from Kraken, resuming from the given timestamp.
-    /// Pass 0 to download everything from the beginning.
-    /// </summary>
-    public async Task<List<KrakenTrade>> DownloadTradesAsync(
-        double startFromUnixTime = 0,
-        IProgress<(int count, string status)>? progress = null,
-        CancellationToken ct = default)
-    {
-        var allTrades = new List<KrakenTrade>();
-        int offset = 0;
-        bool hasMore = true;
-
-        var resumeLabel = startFromUnixTime > 0
-            ? $" from {DateTimeOffset.FromUnixTimeSeconds((long)startFromUnixTime):dd MMM yyyy HH:mm}"
-            : "";
-
-        while (hasMore && !ct.IsCancellationRequested)
-        {
-            progress?.Report((allTrades.Count, $"Downloading trades{resumeLabel} (offset {offset})..."));
-
-            List<KrakenTrade>? batch = null;
-            for (int attempt = 0; attempt < MaxRetries; attempt++)
-            {
-                try
-                {
-                    batch = await GetTradesHistoryAsync(offset, ct, startFromUnixTime);
-                    break; // success
-                }
-                catch (Exception ex) when (ex.Message.Contains("EAPI:Rate limit", StringComparison.OrdinalIgnoreCase)
-                                         || ex.Message.Contains("rate limit", StringComparison.OrdinalIgnoreCase))
-                {
-                    var waitSeconds = 10 * (1 << attempt);
-                    progress?.Report((allTrades.Count,
-                        $"Rate limited. Waiting {waitSeconds}s before retry ({attempt + 1}/{MaxRetries})..."));
-                    await Task.Delay(waitSeconds * 1000, ct);
-                }
-            }
-
-            if (batch == null)
-                throw new Exception("Rate limit exceeded after maximum retries. Try again later.");
-
-            if (batch.Count == 0)
-            {
-                hasMore = false;
-            }
-            else
-            {
-                allTrades.AddRange(batch);
-                offset += batch.Count;
-
-                if (batch.Count < BatchSize)
-                    hasMore = false;
-            }
-
-            if (hasMore)
-                await Task.Delay(RateLimitDelayMs, ct);
-        }
-
-        progress?.Report((allTrades.Count, $"Download complete. {allTrades.Count} new trades found."));
-
-        foreach (var trade in allTrades)
-        {
-            ParseAssetPair(trade);
-        }
-
-        return allTrades.OrderBy(t => t.Time).ToList();
-    }
-
-    private async Task<List<KrakenTrade>> GetTradesHistoryAsync(int offset, CancellationToken ct, double startTime = 0)
-    {
-        var path = "/0/private/TradesHistory";
-        var nonce = GetNonce().ToString();
-
-        // Build the post body string manually so it matches exactly what we sign
-        var postBody = startTime > 0
-            ? $"nonce={nonce}&ofs={offset}&start={startTime}"
-            : $"nonce={nonce}&ofs={offset}";
-
-        var signature = GenerateSignature(path, nonce, postBody);
-
-        var request = new HttpRequestMessage(HttpMethod.Post, path)
-        {
-            Content = new StringContent(postBody, Encoding.UTF8, "application/x-www-form-urlencoded")
-        };
-        request.Headers.Add("API-Key", _apiKey);
-        request.Headers.Add("API-Sign", signature);
-
-        var response = await _httpClient.SendAsync(request, ct);
-        var json = await response.Content.ReadAsStringAsync(ct);
-
-        var result = JsonSerializer.Deserialize<KrakenResponse>(json);
-        if (result == null)
-            throw new Exception("Failed to parse Kraken API response");
-
-        if (result.Error != null && result.Error.Count > 0)
-            throw new Exception($"Kraken API error: {string.Join(", ", result.Error)}");
-
-        if (result.Result?.Trades == null)
-            return new List<KrakenTrade>();
-
-        var trades = new List<KrakenTrade>();
-        foreach (var (tradeId, trade) in result.Result.Trades)
-        {
-            trade.TradeId = tradeId;
-            trades.Add(trade);
-        }
-
-        return trades;
-    }
-
     private string GenerateSignature(string path, string nonce, string postData)
     {
         var sha256 = SHA256.HashData(Encoding.UTF8.GetBytes(nonce + postData));
@@ -308,65 +197,6 @@ public class KrakenApiService
         var hash = hmac.ComputeHash(combined);
 
         return Convert.ToBase64String(hash);
-    }
-
-    private static void ParseAssetPair(KrakenTrade trade)
-    {
-        var pair = trade.Pair;
-
-        // Kraken uses various pair formats. Common patterns:
-        // XXBTZGBP -> XBT/GBP, XETHZGBP -> ETH/GBP
-        // ADAGBP -> ADA/GBP, DOTGBP -> DOT/GBP
-        // Also: XXBTZUSD, XETHZUSD etc.
-
-        var knownQuotes = new[] { "ZGBP", "ZUSD", "ZEUR", "ZJPY", "GBP", "USD", "EUR", "USDT", "USDC" };
-        var knownBases = new Dictionary<string, string>
-        {
-            ["XXBT"] = "BTC", ["XETH"] = "ETH", ["XXRP"] = "XRP",
-            ["XLTC"] = "LTC", ["XXLM"] = "XLM", ["XXDG"] = "DOGE",
-            ["XZEC"] = "ZEC", ["XMLN"] = "MLN", ["XXMR"] = "XMR",
-            ["XREP"] = "REP", ["XETC"] = "ETC"
-        };
-
-        foreach (var quote in knownQuotes)
-        {
-            if (pair.EndsWith(quote, StringComparison.OrdinalIgnoreCase))
-            {
-                var basePart = pair[..^quote.Length];
-                trade.QuoteAsset = quote.TrimStart('Z');
-                trade.BaseAsset = knownBases.TryGetValue(basePart, out var mapped) ? mapped : basePart;
-                return;
-            }
-        }
-
-        // Fallback: try splitting common 3+3 or 3+4 patterns
-        if (pair.Length >= 6)
-        {
-            // Try 3-char quote first (GBP, USD, EUR)
-            var possibleQuote = pair[^3..];
-            if (possibleQuote is "GBP" or "USD" or "EUR")
-            {
-                trade.BaseAsset = pair[..^3];
-                trade.QuoteAsset = possibleQuote;
-                return;
-            }
-
-            // Try 4-char quote (USDT, USDC)
-            if (pair.Length >= 7)
-            {
-                possibleQuote = pair[^4..];
-                if (possibleQuote is "USDT" or "USDC")
-                {
-                    trade.BaseAsset = pair[..^4];
-                    trade.QuoteAsset = possibleQuote;
-                    return;
-                }
-            }
-        }
-
-        // Last resort
-        trade.BaseAsset = pair;
-        trade.QuoteAsset = "GBP";
     }
 
     // ========== PUBLIC API: OHLC for FX rates ==========
@@ -434,11 +264,21 @@ public class KrakenApiService
     /// No API key needed. Rate limited to ~1 req/sec for public endpoints.
     /// Uses daily candles (1440 minute intervals) for HMRC-compliant daily rates.
     /// </summary>
-    public async Task<List<OhlcCandle>> GetOhlcDataAsync(string pair, long sinceUnixTime = 0, CancellationToken ct = default, int interval = 1440)
+    public async Task<List<OhlcCandle>> GetOhlcDataAsync(string pair, long sinceUnixTime = 0, CancellationToken ct = default)
     {
+        int interval = 1440; //we only ever want day rates
         var url = $"/0/public/OHLC?pair={pair}&interval={interval}"; // 1440 = daily (24-hour) intervals
         if (sinceUnixTime > 0)
+        {
+            // Snap back to the start of the UK tax year (6 April) that contains this date,
+            // so every download covers complete tax years rather than partial ones.
+            var sinceDate = DateTimeOffset.FromUnixTimeSeconds(sinceUnixTime);
+            int taxYearStartYear = (sinceDate.Month > 4 || (sinceDate.Month == 4 && sinceDate.Day >= 6))
+                ? sinceDate.Year
+                : sinceDate.Year - 1;
+            sinceUnixTime = new DateTimeOffset(taxYearStartYear, 4, 6, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
             url += $"&since={sinceUnixTime}";
+        }
 
         var response = await _httpClient.GetAsync(url, ct);
         var json = await response.Content.ReadAsStringAsync(ct);
@@ -507,24 +347,6 @@ public class OhlcCandle
 }
 
 // ========== Response types ==========
-
-public class KrakenResponse
-{
-    [JsonPropertyName("error")]
-    public List<string>? Error { get; set; }
-
-    [JsonPropertyName("result")]
-    public KrakenTradesResult? Result { get; set; }
-}
-
-public class KrakenTradesResult
-{
-    [JsonPropertyName("trades")]
-    public Dictionary<string, KrakenTrade>? Trades { get; set; }
-
-    [JsonPropertyName("count")]
-    public int Count { get; set; }
-}
 
 public class KrakenLedgerResponse
 {

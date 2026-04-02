@@ -181,10 +181,6 @@ public class TradeStorageService
             "CryptoTax2026");
         var defaultFxCacheFolder = Path.Combine(defaultDataFolder, "fx_cache");
 
-        Console.WriteLine($"[DEBUG] Custom data folder: {_dataFolder}");
-        Console.WriteLine($"[DEBUG] Current FX cache folder: {fxCacheFolder}");
-        Console.WriteLine($"[DEBUG] Default FX cache folder: {defaultFxCacheFolder}");
-
         // CRITICAL: List files that must NEVER be deleted
         var protectedFiles = new[] { "manual_overrides.json", "pairmap.json" };
 
@@ -192,41 +188,22 @@ public class TradeStorageService
         var foldersToClean = new List<string>();
 
         if (Directory.Exists(fxCacheFolder))
-        {
             foldersToClean.Add(fxCacheFolder);
-            Console.WriteLine($"[DEBUG] Found FX cache in custom location: {fxCacheFolder}");
-        }
 
         if (Directory.Exists(defaultFxCacheFolder) && defaultFxCacheFolder != fxCacheFolder)
-        {
             foldersToClean.Add(defaultFxCacheFolder);
-            Console.WriteLine($"[DEBUG] Found FX cache in default location: {defaultFxCacheFolder}");
-        }
 
         if (foldersToClean.Count == 0)
-        {
-            Console.WriteLine("[DEBUG] No FX cache folders found to clean");
             return;
-        }
 
         // Clean each FX cache folder by selectively deleting files
         foreach (var folderPath in foldersToClean)
         {
-            Console.WriteLine($"[DEBUG] Cleaning FX cache folder: {folderPath}");
-
             // SAFETY CHECK: Ensure we're only working with fx_cache folders
             if (!folderPath.EndsWith("fx_cache", StringComparison.OrdinalIgnoreCase))
-            {
-                Console.WriteLine($"[ERROR] SAFETY CHECK FAILED: Not an fx_cache folder: {folderPath}");
                 throw new InvalidOperationException($"Safety check failed: Cannot process folder that is not fx_cache: {folderPath}");
-            }
 
-            // Get all files in the fx_cache folder
             var allFiles = Directory.GetFiles(folderPath, "*.*", SearchOption.AllDirectories);
-            Console.WriteLine($"[DEBUG] Found {allFiles.Length} total files in: {folderPath}");
-
-            int deletedCount = 0;
-            int protectedCount = 0;
 
             foreach (var filePath in allFiles)
             {
@@ -234,40 +211,12 @@ public class TradeStorageService
 
                 // NEVER delete protected files
                 if (protectedFiles.Contains(fileName, StringComparer.OrdinalIgnoreCase))
-                {
-                    Console.WriteLine($"[DEBUG] PROTECTED (not deleting): {filePath}");
-                    protectedCount++;
                     continue;
-                }
 
-                // Delete all other files (cached rate files)
-                try
-                {
-                    File.Delete(filePath);
-                    Console.WriteLine($"[DEBUG] Deleted cached rate file: {filePath}");
-                    deletedCount++;
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[WARNING] Failed to delete {filePath}: {ex.Message}");
-                }
+                try { File.Delete(filePath); }
+                catch { /* best-effort deletion */ }
             }
-
-            Console.WriteLine($"[DEBUG] Folder {folderPath}: Deleted {deletedCount} files, Protected {protectedCount} files");
         }
-
-        // FINAL VERIFICATION: Ensure manual_overrides.json still exists
-        var manualOverridesPath = Path.Combine(fxCacheFolder, "manual_overrides.json");
-        if (File.Exists(manualOverridesPath))
-        {
-            Console.WriteLine($"[DEBUG] VERIFIED: manual_overrides.json is safe: {manualOverridesPath}");
-        }
-        else
-        {
-            Console.WriteLine($"[DEBUG] manual_overrides.json was not present: {manualOverridesPath}");
-        }
-
-        Console.WriteLine($"[DEBUG] FX cache reset complete - manual_overrides.json was NEVER touched");
     }
 
     public async Task MigrateDataAsync(string fromPath)
