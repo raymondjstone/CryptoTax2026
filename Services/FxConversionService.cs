@@ -1401,14 +1401,12 @@ public class FxConversionService
             else
             {
                 // Try to find this Kraken pair in our discovered pairs
-                var found = false;
                 foreach (var kv in _krakenDiscoveredPairs)
                 {
                     if (kv.Value.KrakenPair.Equals(cacheKey, StringComparison.OrdinalIgnoreCase))
                     {
                         if (!_pairMap.ContainsKey(kv.Key))
                             _pairMap[kv.Key] = kv.Value;
-                        found = true;
                         break;
                     }
                 }

@@ -22,7 +22,9 @@
       "Bash(grep -v \"^.*//.*[A-Z][a-z]*\\\\s*[A-Z]\")",
       "Bash(find /c/Code/CryptoTax2026 -type f \\\\\\(-name *.csv -o -name *.json -o -name *.txt \\\\\\) ! -path */obj/* ! -path */bin/* ! -path */.vs/* ! -path */.git/* ! -path */.claude/*)",
       "Bash(find C:/Users/passp/AppData -type f \\\\\\(-name *CryptoTax* -o -name *appsettings* -o -name *.json \\\\\\))",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(dotnet publish:*)",
+      "Bash(powershell -ExecutionPolicy Bypass -File BuildMSI.ps1 -Platform x64)"
     ]
   }
 }

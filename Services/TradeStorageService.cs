@@ -11,7 +11,6 @@ namespace CryptoTax2026.Services;
 public class TradeStorageService
 {
     private readonly string _dataFolder;
-    private readonly string _tradesFile;
     private readonly string _ledgerFile;
     private readonly string _settingsFile;
 
@@ -31,7 +30,6 @@ public class TradeStorageService
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "CryptoTax2026");
 
-        _tradesFile = Path.Combine(_dataFolder, "trades.json");
         _ledgerFile = Path.Combine(_dataFolder, "ledger.json");
         _settingsFile = Path.Combine(_dataFolder, "settings.json");
 
@@ -97,57 +95,6 @@ public class TradeStorageService
         return File.GetLastWriteTime(_ledgerFile);
     }
 
-    // ========== TRADES (legacy, kept for backward compat) ==========
-
-    public async Task SaveTradesAsync(List<KrakenTrade> trades)
-    {
-        var json = JsonSerializer.Serialize(trades, JsonOptions);
-        await File.WriteAllTextAsync(_tradesFile, json);
-    }
-
-    public async Task<List<KrakenTrade>> LoadTradesAsync()
-    {
-        if (!File.Exists(_tradesFile))
-            return new List<KrakenTrade>();
-
-        var json = await File.ReadAllTextAsync(_tradesFile);
-        return JsonSerializer.Deserialize<List<KrakenTrade>>(json) ?? new List<KrakenTrade>();
-    }
-
-    public async Task<List<KrakenTrade>> MergeAndSaveTradesAsync(List<KrakenTrade> newTrades)
-    {
-        var existing = await LoadTradesAsync();
-        var existingIds = new HashSet<string>(existing.Select(t => t.TradeId));
-
-        var toAdd = newTrades.Where(t => !existingIds.Contains(t.TradeId)).ToList();
-        existing.AddRange(toAdd);
-
-        var merged = existing.OrderBy(t => t.Time).ToList();
-        await SaveTradesAsync(merged);
-        return merged;
-    }
-
-    public async Task<double> GetLatestTradeTimeAsync()
-    {
-        var trades = await LoadTradesAsync();
-        if (trades.Count == 0) return 0;
-        return trades.Max(t => t.Time);
-    }
-
-    public async Task DeleteTradesAsync()
-    {
-        if (File.Exists(_tradesFile))
-            File.Delete(_tradesFile);
-        await Task.CompletedTask;
-    }
-
-    public bool HasSavedTrades() => File.Exists(_tradesFile);
-
-    public DateTime? GetTradesFileDate()
-    {
-        if (!File.Exists(_tradesFile)) return null;
-        return File.GetLastWriteTime(_tradesFile);
-    }
 
     // ========== CUSTOM PATH CONFIGURATION ==========
 
@@ -335,13 +282,6 @@ public class TradeStorageService
             File.Copy(fromLedgerFile, _ledgerFile);
         }
 
-        // Migrate trades.json
-        var fromTradesFile = Path.Combine(fromPath, "trades.json");
-        if (File.Exists(fromTradesFile) && !File.Exists(_tradesFile))
-        {
-            File.Copy(fromTradesFile, _tradesFile);
-        }
-
         // Migrate fx_cache folder
         var fromFxCacheFolder = Path.Combine(fromPath, "fx_cache");
         var toFxCacheFolder = Path.Combine(_dataFolder, "fx_cache");
@@ -376,7 +316,6 @@ public class TradeStorageService
 
         // Add main data files if they exist
         if (File.Exists(_ledgerFile)) files.Add(_ledgerFile);
-        if (File.Exists(_tradesFile)) files.Add(_tradesFile);
         if (File.Exists(_settingsFile)) files.Add(_settingsFile);
 
         // Add FX cache files
@@ -440,7 +379,6 @@ public class TradeStorageService
     {
         // Delete main data files
         if (File.Exists(_ledgerFile)) File.Delete(_ledgerFile);
-        if (File.Exists(_tradesFile)) File.Delete(_tradesFile);
         if (File.Exists(_settingsFile)) File.Delete(_settingsFile);
 
         // Delete FX cache

@@ -43,16 +43,20 @@
 
             <TextBlock Text="Add Event" Style="{StaticResource SubtitleTextBlockStyle}" />
 
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <ComboBox x:Name="ClaimTypeBox" Header="Claim Type" Width="160" SelectedIndex="0">
-                    <ComboBoxItem Content="Delisted" Tag="Delisted" />
-                    <ComboBoxItem Content="Negligible Value" Tag="Negligible Value" />
-                </ComboBox>
-                <TextBox x:Name="DelistAssetBox" Header="Asset" PlaceholderText="e.g. LUNA" Width="120" />
-                <DatePicker x:Name="DelistDatePicker" Header="Date" />
-                <TextBox x:Name="DelistNotesBox" Header="Notes" PlaceholderText="Optional notes" Width="200" />
-                <Button x:Name="AddDelistedBtn" Content="Add" Style="{StaticResource AccentButtonStyle}"
-                        Click="AddDelistedAsset_Click" VerticalAlignment="Bottom" Margin="0,0,0,1" />
+            <StackPanel Spacing="8">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ComboBox x:Name="ClaimTypeBox" Header="Claim Type" Width="160" SelectedIndex="0">
+                        <ComboBoxItem Content="Delisted" Tag="Delisted" />
+                        <ComboBoxItem Content="Negligible Value" Tag="Negligible Value" />
+                    </ComboBox>
+                    <TextBox x:Name="DelistAssetBox" Header="Asset" PlaceholderText="e.g. LUNA" Width="120" />
+                    <CalendarDatePicker x:Name="DelistDatePicker" Header="Date" PlaceholderText="Pick a date" Width="220" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBox x:Name="DelistNotesBox" Header="Notes" PlaceholderText="Optional notes" Width="300" />
+                    <Button x:Name="AddDelistedBtn" Content="Add" Style="{StaticResource AccentButtonStyle}"
+                            Click="AddDelistedAsset_Click" VerticalAlignment="Bottom" Margin="0,0,0,1" />
+                </StackPanel>
             </StackPanel>
 
         </StackPanel>

@@ -24,8 +24,23 @@ namespace CryptoTax2026
         /// </summary>
         public App()
         {
-            Microsoft.Windows.ApplicationModel.WindowsAppRuntime.DeploymentManager.Initialize();
             InitializeComponent();
+            UnhandledException += OnUnhandledException;
+        }
+
+        private void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
+        {
+            var crashLog = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "CryptoTax2026", "crash.log");
+            try
+            {
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(crashLog)!);
+                System.IO.File.AppendAllText(crashLog,
+                    $"[{DateTime.Now:O}] {e.Exception.GetType().FullName}: {e.Exception.Message}\n{e.Exception.StackTrace}\n\n");
+            }
+            catch { }
+            e.Handled = true;
         }
 
         /// <summary>

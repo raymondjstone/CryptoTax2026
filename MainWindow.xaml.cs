@@ -44,6 +44,12 @@ public sealed partial class MainWindow : Window
             Win32Interop.GetWindowIdFromWindow(
                 WinRT.Interop.WindowNative.GetWindowHandle(this)));
 
+        // Set the window/taskbar icon explicitly — required for unpackaged (MSI) installs
+        // because MSIX package identity normally handles this automatically.
+        var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+        if (System.IO.File.Exists(iconPath))
+            _appWindow.SetIcon(iconPath);
+
         SetTitleBar(AppTitleBar);
 
         Closed += MainWindow_Closed;

@@ -30,54 +30,69 @@ if ($LASTEXITCODE -ne 0) {
     throw "Failed to publish application"
 }
 
+# Step 2b: Copy resources.pri into the publish output.
+# dotnet publish does not include resources.pri for WinUI 3 apps (it is normally
+# bundled by MSIX packaging). For unpackaged/MSI deployment we must copy it manually.
+# Check both possible locations - the path varies depending on build state.
+$priCandidates = @(
+    "bin\$Platform\$Configuration\net8.0-windows10.0.19041.0\resources.pri",
+    "bin\$Platform\$Configuration\net8.0-windows10.0.19041.0\win-$Platform\resources.pri"
+)
+$resourcesPri = $priCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($resourcesPri) {
+    Copy-Item $resourcesPri "bin\publish\msi\resources.pri" -Force
+    Write-Host "Copied resources.pri from $resourcesPri" -ForegroundColor Cyan
+} else {
+    Write-Warning "resources.pri not found in any expected location"
+}
+
 # Step 3: Generate file list for WiX
 Write-Host "Generating file list for installer..." -ForegroundColor Yellow
 New-Item -ItemType Directory -Force -Path "bin\installer" | Out-Null
 
-# Create a proper harvested files list with individual components
-$harvestedXml = @"
-<?xml version="1.0" encoding="UTF-8"?>
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Fragment>
-    <ComponentGroup Id="HarvestedFiles" Directory="INSTALLFOLDER">
-"@
+# Build the harvested WiX XML with proper subdirectory support
+$sb = New-Object System.Text.StringBuilder
+[void]$sb.AppendLine('<?xml version="1.0" encoding="UTF-8"?>')
+[void]$sb.AppendLine('<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">')
+[void]$sb.AppendLine('  <Fragment>')
+[void]$sb.AppendLine('    <ComponentGroup Id="HarvestedFiles" Directory="INSTALLFOLDER">')
 
-# Add components for each file
+$publishRoot = (Get-Item "bin\publish\msi").FullName
 $fileCount = 0
 Get-ChildItem -Path "bin\publish\msi" -File -Recurse | ForEach-Object {
-    $relativePath = $_.FullName.Replace((Get-Item "bin\publish\msi").FullName, "").TrimStart('\').Replace('\', '/')
+    $relativePath = $_.FullName.Substring($publishRoot.Length).TrimStart('\')
+    $relativePathForward = $relativePath.Replace('\', '/')
     $fileName = $_.Name
     $componentId = "File_$fileCount"
 
-    # Create a valid WiX ID by removing invalid characters and limiting length
     $cleanFileName = $fileName -replace '[^A-Za-z0-9_.]', '_' -replace '__+', '_'
     if ($cleanFileName.Length -gt 50) {
         $cleanFileName = $cleanFileName.Substring(0, 50)
     }
     $fileId = "File_${fileCount}_$cleanFileName"
 
-    $keyPath = if ($fileName -eq "CryptoTax2026.exe") { ' KeyPath="yes"' } else { '' }
+    $keyPath = ''
+    if ($fileName -eq "CryptoTax2026.exe") { $keyPath = ' KeyPath="yes"' }
 
-    $harvestedXml += @"
-      <Component Id="$componentId" Guid="*">
-        <File Id="$fileId" Source="bin\publish\msi\$relativePath"$keyPath />
-      </Component>
-"@
+    # Preserve subdirectory structure in the MSI
+    $subDir = Split-Path $relativePath -Parent
+    $subDirAttr = ''
+    if ($subDir) {
+        $subDirAttr = " Subdirectory=`"$subDir`""
+    }
+
+    [void]$sb.AppendLine("      <Component Id=`"$componentId`" Guid=`"*`"$subDirAttr>")
+    [void]$sb.AppendLine("        <File Id=`"$fileId`" Source=`"bin\publish\msi\$relativePathForward`"$keyPath />")
+    [void]$sb.AppendLine("      </Component>")
     $fileCount++
 }
 
-$harvestedXml += @"
-    </ComponentGroup>
-  </Fragment>
-</Wix>
-"@
+[void]$sb.AppendLine('    </ComponentGroup>')
+[void]$sb.AppendLine('  </Fragment>')
+[void]$sb.AppendLine('</Wix>')
 
 New-Item -ItemType Directory -Force -Path "bin\buildmsi-temp" | Out-Null
-$harvestedXml | Out-File -FilePath "bin\buildmsi-temp\HarvestedFiles.wxs" -Encoding UTF8
-
-if ($LASTEXITCODE -ne 0) {
-    throw "Failed to harvest files"
-}
+$sb.ToString() | Out-File -FilePath "bin\buildmsi-temp\HarvestedFiles.wxs" -Encoding UTF8
 
 # Step 4: Build the MSI
 Write-Host "Building MSI package..." -ForegroundColor Yellow
@@ -85,7 +100,7 @@ $outputName = "CryptoTax2026-$Platform.msi"
 [xml]$manifest = Get-Content "Package.appxmanifest"
 $productVersion = $manifest.Package.Identity.Version
 Write-Host "Product version: $productVersion" -ForegroundColor Cyan
-wix build "Installer.wxs" "bin\buildmsi-temp\HarvestedFiles.wxs" -o "bin\installer\$outputName" -arch $Platform.ToLower() -d "ProductVersion=$productVersion"
+wix build "Installer.wxs" "bin\buildmsi-temp\HarvestedFiles.wxs" -o "bin\installer\$outputName" -arch $Platform.ToLower() -d "ProductVersion=$productVersion" -d "SourceDir=bin\publish\msi" -pdbtype none
 
 if ($LASTEXITCODE -ne 0) {
     throw "Failed to build MSI"

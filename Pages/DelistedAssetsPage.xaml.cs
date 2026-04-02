@@ -29,6 +29,8 @@ public sealed partial class DelistedAssetsPage : Page
     {
         if (_mainWindow == null) return;
 
+
+
         var items = _mainWindow.Settings.DelistedAssets
             .Select((d, i) => new DelistedAssetViewModel
             {
@@ -57,7 +59,7 @@ public sealed partial class DelistedAssetsPage : Page
             return;
         }
 
-        var selectedDate = DelistDatePicker.SelectedDate;
+        var selectedDate = DelistDatePicker.Date;
         if (selectedDate == null)
         {
             InfoMessage.Message = "Please select a delisting date.";

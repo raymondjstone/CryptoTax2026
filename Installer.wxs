@@ -6,6 +6,11 @@
            UpgradeCode="B7A5F5E1-2D8C-4F9A-8E3D-1A2B3C4D5E6F"
            Compressed="yes">
 
+    <Icon Id="CryptoTaxIcon" SourceFile="$(var.SourceDir)\Assets\AppIcon.ico" />
+
+    <!-- Embed the cabinet inside the MSI so the installer is a single file -->
+    <MediaTemplate EmbedCab="yes" />
+
     <!-- Automatically remove older versions on upgrade -->
     <MajorUpgrade DowngradeErrorMessage="A newer version of CryptoTax2026 is already installed." />
 
@@ -32,7 +37,8 @@
                   Name="CryptoTax2026"
                   Description="UK Crypto Capital Gains Tax Calculator"
                   Target="[INSTALLFOLDER]CryptoTax2026.exe"
-                  WorkingDirectory="INSTALLFOLDER" />
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="CryptoTaxIcon" />
         <RemoveFolder Id="CleanUpShortCuts" Directory="ApplicationProgramsFolder" On="uninstall" />
         <RegistryValue Root="HKCU"
                        Key="Software\CryptoTax2026"
@@ -47,7 +53,8 @@
                   Name="CryptoTax2026"
                   Description="UK Crypto Capital Gains Tax Calculator"
                   Target="[INSTALLFOLDER]CryptoTax2026.exe"
-                  WorkingDirectory="INSTALLFOLDER" />
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="CryptoTaxIcon" />
         <RegistryValue Root="HKCU"
                        Key="Software\CryptoTax2026"
                        Name="desktop_shortcut"

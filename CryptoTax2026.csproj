@@ -5,6 +5,7 @@
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>CryptoTax2026</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <Platforms>x86;x64;ARM64</Platforms>
     <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
     <UseWinUI>true</UseWinUI>
@@ -13,6 +14,9 @@
     <Nullable>enable</Nullable>
     <WindowsAppSdkBootstrapInitialize>false</WindowsAppSdkBootstrapInitialize>
     <WindowsAppSdkDeploymentManagerInitialize>false</WindowsAppSdkDeploymentManagerInitialize>
+    <!-- Suppress the XAML-generated Main so our Program.cs can initialize the
+         Windows App Runtime before Application.Start() when running unpackaged. -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -33,6 +37,9 @@
     <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
     <Content Include="Assets\StoreLogo.png" />
     <Content Include="Assets\Wide310x150Logo.scale-200.png" />
+    <!-- Shipped alongside the exe so assets are available when running unpackaged (MSI) -->
+    <Content Include="Assets\AppIcon.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Assets\AppSplash.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -88,8 +95,22 @@
     <!-- Use publish profiles to control trimming per deployment target -->
   </PropertyGroup>
 
+  <!--
+    Copy resources.pri into the publish output for unpackaged (MSI) deployment.
+    dotnet publish omits this file because MSIX packaging normally handles it.
+    WinUI 3 needs it at runtime to resolve XAML resources.
+  -->
+  <Target Name="CopyResourcesPriToPublish" AfterTargets="Publish" Condition="'$(GenerateAppxPackageOnBuild)' != 'true'">
+    <PropertyGroup>
+      <!-- resources.pri is generated in the TFM output dir, one level above the RID-specific OutputPath -->
+      <_ResourcesPriSource>$(BaseOutputPath)$(Platform)\$(Configuration)\$(TargetFramework)\resources.pri</_ResourcesPriSource>
+    </PropertyGroup>
+    <Copy SourceFiles="$(_ResourcesPriSource)" DestinationFolder="$(PublishDir)" Condition="Exists('$(_ResourcesPriSource)')" />
+    <Warning Text="resources.pri not found at $(_ResourcesPriSource) — XAML resources may fail at runtime" Condition="!Exists('$(_ResourcesPriSource)')" />
+  </Target>
+
   <!-- MSI Build Integration -->
-  <Target Name="BuildMSI" AfterTargets="Publish" Condition="'$(PublishProtocol)' == 'FileSystem' And '$(GenerateAppxPackageOnBuild)' != 'true'">
+  <Target Name="BuildMSI" AfterTargets="CopyResourcesPriToPublish" Condition="'$(PublishProtocol)' == 'FileSystem' And '$(GenerateAppxPackageOnBuild)' != 'true'">
     <Message Text="Building MSI installer..." Importance="high" />
     <Exec Command="powershell -ExecutionPolicy Bypass -File BuildMSI.ps1 -Platform $(Platform)" WorkingDirectory="$(MSBuildProjectDirectory)" ContinueOnError="false" />
     <Message Text="MSI installer created successfully!" Importance="high" />
