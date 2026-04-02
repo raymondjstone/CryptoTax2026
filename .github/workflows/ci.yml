@@ -36,12 +36,14 @@ jobs:
           name: test-results
           path: CryptoTax2026.Tests\TestResults\*.trx
 
-  # ── Build MSI installer (master only) ──────────────────────────────────────
-  build-msi:
-    name: Build MSI (x64)
+  # ── Build MSI & publish GitHub Release (master only) ──────────────────────
+  release:
+    name: Build & Release MSI (x64)
     runs-on: windows-latest
     needs: test
     if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -51,12 +53,22 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Read version from manifest
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$manifest = Get-Content Package.appxmanifest
+          $version = $manifest.Package.Identity.Version
+          Write-Host "Version: $version"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$version"
+
       - name: Build MSI
         run: dotnet build CryptoTax2026.Installer.x64.wixproj -c Release
 
-      - name: Upload MSI artifact
-        uses: actions/upload-artifact@v4
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: CryptoTax2026-Setup-x64
-          path: bin\installer\*.msi
-          if-no-files-found: error
+          tag_name: v${{ steps.version.outputs.version }}
+          name: CryptoTax2026 v${{ steps.version.outputs.version }}
+          files: bin\installer\CryptoTax2026-Setup-x64.msi
+          fail_on_unmatched_files: true
