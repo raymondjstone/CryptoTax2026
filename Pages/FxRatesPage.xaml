@@ -94,11 +94,19 @@
                     <DataTemplate>
                         <Grid Padding="8,4" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="180" />
-                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="160" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="120" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="Date" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="1" Text="Rate" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="0" Text="Date"    FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="1" Text="Open"    FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="2" Text="High"    FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="3" Text="Low"     FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="4" Text="Close"   FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="5" Text="Average" FontWeight="SemiBold" />
                         </Grid>
                     </DataTemplate>
                 </ListView.HeaderTemplate>
@@ -106,11 +114,19 @@
                     <DataTemplate>
                         <Grid Padding="8,2">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="180" />
-                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="160" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="120" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="{Binding DateFormatted}" />
-                            <TextBlock Grid.Column="1" Text="{Binding RateFormatted}" />
+                            <TextBlock Grid.Column="1" Text="{Binding OpenFormatted}" />
+                            <TextBlock Grid.Column="2" Text="{Binding HighFormatted}" />
+                            <TextBlock Grid.Column="3" Text="{Binding LowFormatted}" />
+                            <TextBlock Grid.Column="4" Text="{Binding CloseFormatted}" />
+                            <TextBlock Grid.Column="5" Text="{Binding AverageFormatted}" />
                         </Grid>
                     </DataTemplate>
                 </ListView.ItemTemplate>

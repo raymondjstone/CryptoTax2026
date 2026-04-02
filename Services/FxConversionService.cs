@@ -1313,14 +1313,18 @@ public class FxConversionService
     /// Returns all individual rate data points for a given pair, ordered by date.
     /// Returns empty list if pair not found.
     /// </summary>
-    public List<(DateTimeOffset Date, decimal Rate)> GetRateDataPoints(string pairName)
+    public List<(DateTimeOffset Date, decimal Open, decimal High, decimal Low, decimal Close, decimal Average)> GetRateDataPoints(string pairName)
     {
         if (!_rateCache.TryGetValue(pairName, out var rates))
             return new();
 
         return rates.Select(kv => (
-            Date: DateTimeOffset.FromUnixTimeSeconds(kv.Key),
-            Rate: kv.Value.Close  // Use close price for backward compatibility
+            Date:    DateTimeOffset.FromUnixTimeSeconds(kv.Key),
+            Open:    kv.Value.Open,
+            High:    kv.Value.High,
+            Low:     kv.Value.Low,
+            Close:   kv.Value.Close,
+            Average: (kv.Value.High + kv.Value.Low) / 2m
         )).ToList();
     }
 

@@ -61,7 +61,7 @@ public sealed partial class FxRatesPage : Page
         }
 
         var points = _fxService.GetRateDataPoints(pair);
-        var vms = points.Select(p => new RateDataPointRow(p.Date, p.Rate)).ToList();
+        var vms = points.Select(p => new RateDataPointRow(p.Date, p.Open, p.High, p.Low, p.Close, p.Average)).ToList();
         RateExplorerList.ItemsSource = vms;
         RateExplorerStatus.Text = $"{vms.Count:#,##0} data points";
     }
@@ -173,13 +173,21 @@ public sealed partial class FxRatesPage : Page
 
 internal class RateDataPointRow
 {
-    public RateDataPointRow(DateTimeOffset date, decimal rate)
+    public RateDataPointRow(DateTimeOffset date, decimal open, decimal high, decimal low, decimal close, decimal average)
     {
-        DateFormatted = date.ToString("dd/MM/yyyy HH:mm");
-        RateFormatted = rate.ToString("0.##########");
+        DateFormatted    = date.ToString("dd/MM/yyyy");
+        OpenFormatted    = open.ToString("0.##########");
+        HighFormatted    = high.ToString("0.##########");
+        LowFormatted     = low.ToString("0.##########");
+        CloseFormatted   = close.ToString("0.##########");
+        AverageFormatted = average.ToString("0.##########");
     }
-    public string DateFormatted { get; }
-    public string RateFormatted { get; }
+    public string DateFormatted    { get; }
+    public string OpenFormatted    { get; }
+    public string HighFormatted    { get; }
+    public string LowFormatted     { get; }
+    public string CloseFormatted   { get; }
+    public string AverageFormatted { get; }
 }
 
 internal class FxRateRow
@@ -190,8 +198,8 @@ internal class FxRateRow
 
     public string PairName => _info.PairName;
     public string DataPointsFormatted => _info.DataPoints.ToString("#,##0");
-    public string EarliestFormatted => _info.EarliestDate.ToString("dd/MM/yyyy HH:mm");
-    public string LatestFormatted => _info.LatestDate.ToString("dd/MM/yyyy HH:mm");
+    public string EarliestFormatted => _info.EarliestDate.ToString("dd/MM/yyyy");
+    public string LatestFormatted => _info.LatestDate.ToString("dd/MM/yyyy");
     public string RateFormatted => _info.SampleRate.ToString("0.########");
     public string OnDiskLabel => _info.OnDisk ? "Yes" : "No";
     public string DataSource => _info.DataSource;
