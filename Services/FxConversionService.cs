@@ -677,10 +677,17 @@ public class FxConversionService
         if (TryLoadFromCache(krakenPair))
             return true;
 
-        var since = earliest.AddDays(-7).ToUnixTimeSeconds();
+        // Snap back to the start of the UK tax year (6 April) that contains this date,
+        // so every download covers complete tax years rather than partial ones.
+        var sinceDate = earliest.AddDays(-7);
+        int taxYearStartYear = (sinceDate.Month > 4 || (sinceDate.Month == 4 && sinceDate.Day >= 6))
+            ? sinceDate.Year
+            : sinceDate.Year - 1;
+        long sinceUnixTime = new DateTimeOffset(taxYearStartYear, 4, 6, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+
         var allCandles = new List<OhlcCandle>();
 
-        var currentSince = since;
+        var currentSince = sinceUnixTime;
         try
         {
             while (!ct.IsCancellationRequested)

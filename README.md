@@ -86,14 +86,23 @@ Scottish and Welsh income tax bands only affect income tax. When you enter your 
 ## Requirements
 
 - Windows 10 (version 1809 or later) or Windows 11
-- .NET 8 SDK
+- .NET 8 SDK (only needed if building from source)
 - A Kraken API key with "Query Ledger/Trade Data" permission (for Kraken data; CSV import works without API keys)
 
 ## Setup
 
+### Option A — Download a prebuilt release (recommended)
+
+Prebuilt installers are available on the [GitHub Releases page](https://github.com/raymondjstone/CryptoTax2026/releases). Download the latest `.msi` installer for your architecture (x64 or ARM64), run it, and skip to step 4 below. No .NET SDK or build tools required.
+
+### Option B — Build from source
+
 1. Clone this repository
 2. Build with `dotnet build -p:Platform=x64`
 3. Run the application
+
+### First-run configuration (both options)
+
 4. On the Settings tab, enter your Kraken API key and secret, then click Save Credentials
 5. Click Download Trades to fetch your trade history
 6. Optionally import CSV files from other exchanges via the CSV Import tab

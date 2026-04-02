@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  # ── Build & test ────────────────────────────────────────────────────────────
+  test:
+    name: Build & Test
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore CryptoTax2026.Tests\CryptoTax2026.Tests.csproj -r win-x64
+
+      - name: Build
+        run: dotnet build CryptoTax2026.Tests\CryptoTax2026.Tests.csproj -c Release -r win-x64 --no-restore
+
+      - name: Test
+        run: dotnet test CryptoTax2026.Tests\CryptoTax2026.Tests.csproj -c Release -r win-x64 --no-build --logger "trx;LogFileName=test-results.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: CryptoTax2026.Tests\TestResults\*.trx
+
+  # ── Build MSI installer (master only) ──────────────────────────────────────
+  build-msi:
+    name: Build MSI (x64)
+    runs-on: windows-latest
+    needs: test
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build MSI
+        run: dotnet build CryptoTax2026.Installer.x64.wixproj -c Release
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CryptoTax2026-Setup-x64
+          path: bin\installer\*.msi
+          if-no-files-found: error

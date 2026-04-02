@@ -270,13 +270,6 @@ public class KrakenApiService
         var url = $"/0/public/OHLC?pair={pair}&interval={interval}"; // 1440 = daily (24-hour) intervals
         if (sinceUnixTime > 0)
         {
-            // Snap back to the start of the UK tax year (6 April) that contains this date,
-            // so every download covers complete tax years rather than partial ones.
-            var sinceDate = DateTimeOffset.FromUnixTimeSeconds(sinceUnixTime);
-            int taxYearStartYear = (sinceDate.Month > 4 || (sinceDate.Month == 4 && sinceDate.Day >= 6))
-                ? sinceDate.Year
-                : sinceDate.Year - 1;
-            sinceUnixTime = new DateTimeOffset(taxYearStartYear, 4, 6, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
             url += $"&since={sinceUnixTime}";
         }
 
