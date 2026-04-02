@@ -62,6 +62,9 @@ jobs:
           Write-Host "Version: $version"
           Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$version"
 
+      - name: Build main app (generates resources.pri)
+        run: dotnet build CryptoTax2026.csproj -c Release -p:Platform=x64 -p:GenerateAppxPackageOnBuild=false -p:EnableMsixTooling=false
+
       - name: Build MSI
         run: dotnet build CryptoTax2026.Installer.x64.wixproj -c Release
 
