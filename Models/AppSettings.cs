@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace CryptoTax2026.Models;
 
@@ -33,6 +34,24 @@ public class AppSettings
     public bool BuyMeCoffeeClicked { get; set; } = false;
     public DateTimeOffset? LastCoffeePrompt { get; set; }
     public DateTimeOffset? FirstAppUse { get; set; } // Track when the app was first used
+
+    /// <summary>
+    /// When true, entries sourced from the Kraken pair-events database (Notes = "Kraken")
+    /// are excluded from CGT calculations. Only manually configured or explicitly-imported
+    /// entries (non-Kraken Notes) are used.
+    /// </summary>
+    public bool IgnoreAutoDelistings { get; set; } = false;
+
+    /// <summary>
+    /// The effective list of delisted asset events passed to the CGT engine.
+    /// When <see cref="IgnoreAutoDelistings"/> is true, entries with Notes = "Kraken"
+    /// (auto-sourced from the bundled pair-events database) are excluded.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public List<DelistedAssetEvent> EffectiveDelistedAssets =>
+        IgnoreAutoDelistings
+            ? DelistedAssets.Where(e => !string.Equals(e.Notes, "Kraken", StringComparison.OrdinalIgnoreCase)).ToList()
+            : DelistedAssets;
 }
 
 public class TaxYearUserInput
@@ -42,16 +61,59 @@ public class TaxYearUserInput
 }
 
 /// <summary>
-/// Represents a manually-entered delisting event for an asset.
-/// On the delisting date, the entire holding is treated as disposed at £0 proceeds.
-/// Any ledger entries for this asset after the delisting date are ignored.
+/// Represents a delist (and optional relist) event for a specific Kraken trading pair.
+/// On the delist date the entire holding of the underlying asset is treated as disposed at £0.
+/// Post-delist ledger entries for that asset are ignored until the relist date (if any).
 /// </summary>
 public class DelistedAssetEvent
 {
+    /// <summary>The trading pair, e.g. "LUNAUSD" or "XXBTZGBP".</summary>
+    public string Pair { get; set; } = "";
+
+    /// <summary>
+    /// Backward-compat field from the pre-pair-based format (v1 settings stored just the
+    /// asset ticker here, e.g. "LUNA"). Populated from <see cref="Pair"/> since v2.
+    /// </summary>
     public string Asset { get; set; } = "";
+
     public DateTimeOffset DelistingDate { get; set; }
+
+    /// <summary>When set, the pair was relisted on this date and entries after it are valid.</summary>
+    public DateTimeOffset? RelistDate { get; set; }
+
     public string Notes { get; set; } = "";
     public string ClaimType { get; set; } = "Delisted"; // "Delisted" or "Negligible Value"
+
+    /// <summary>
+    /// The base asset extracted from <see cref="Pair"/> (e.g. "LUNAUSD" → "LUNA").
+    /// Falls back to the legacy <see cref="Asset"/> field when <see cref="Pair"/> is empty.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string EffectiveAsset =>
+        !string.IsNullOrWhiteSpace(Pair) ? ExtractBaseAsset(Pair) : Asset;
+
+    // Quote currencies ordered longest-first so "USDT" is tried before "USD" etc.
+    private static readonly string[] KnownQuotes =
+    {
+        "USDT", "USDC", "ZGBP", "ZUSD", "ZEUR", "ZJPY", "ZCAD", "ZAUD",
+        "GBP", "USD", "EUR", "JPY", "CAD", "AUD", "CHF", "DAI"
+    };
+
+    /// <summary>
+    /// Strips the known quote currency from the end of a Kraken pair name and normalises
+    /// the resulting base ticker.  E.g. "LUNAUSD" → "LUNA", "XXBTZGBP" → "BTC".
+    /// Returns the normalised input unchanged if no known quote is found.
+    /// </summary>
+    public static string ExtractBaseAsset(string pair)
+    {
+        var upper = pair.ToUpperInvariant().Trim();
+        foreach (var quote in KnownQuotes)
+        {
+            if (upper.Length > quote.Length && upper.EndsWith(quote))
+                return KrakenLedgerEntry.NormaliseAssetName(upper[..^quote.Length]);
+        }
+        return KrakenLedgerEntry.NormaliseAssetName(upper);
+    }
 }
 
 /// <summary>

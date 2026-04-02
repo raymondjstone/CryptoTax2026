@@ -207,21 +207,7 @@ public sealed partial class MainWindow : Window
         var fxService = _fxService;
         var warnings = _warnings;
         var trades = _trades;
-        var delistedAssets = _settings.DelistedAssets;
-        var costOverrides = _settings.CostBasisOverrides;
-        var mergedLedger = GetMergedLedger();
-        var userInputs = _settings.TaxYearInputs;
-
-        var (summaries, pools, cgtService) = await Task.Run(() =>
-        {
-            var svc = new CgtCalculationService(fxService, warnings, trades, delistedAssets, costOverrides);
-            var results = svc.CalculateAllTaxYears(mergedLedger, userInputs);
-            return (results, svc.FinalPools, svc);
-        });
-
-        _taxYearSummaries = summaries;
-        _finalPools = pools;
-        _lastCgtService = cgtService;
+        var delistedAssets = _settings.EffectiveDelistedAssets;
 
         RebuildTabs();
     }
@@ -273,22 +259,7 @@ public sealed partial class MainWindow : Window
         var warnings = new List<CalculationWarning>();
         var fxService = _fxService;
         var trades = _trades;
-        var delistedAssets = _settings.DelistedAssets;
-        var costOverrides = _settings.CostBasisOverrides;
-        var mergedLedger = GetMergedLedger();
-        var userInputs = _settings.TaxYearInputs;
-
-        var (summaries, pools, cgtService) = await Task.Run(() =>
-        {
-            var svc = new CgtCalculationService(fxService, warnings, trades, delistedAssets, costOverrides);
-            var results = svc.CalculateAllTaxYears(mergedLedger, userInputs);
-            return (results, svc.FinalPools, svc);
-        });
-
-        _warnings = warnings;
-        _taxYearSummaries = summaries;
-        _finalPools = pools;
-        _lastCgtService = cgtService;
+        var delistedAssets = _settings.EffectiveDelistedAssets;
 
         RebuildTabs();
     }

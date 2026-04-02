@@ -131,58 +131,112 @@ public class CgtCalculationService
     }
 
     /// <summary>
-    /// Filters out ledger entries that occur after a user-defined delisting date for that asset.
+    /// Filters out ledger entries that occur after a user-defined delisting date for that asset,
+    /// but only for events with <c>ClaimType = "Negligible Value"</c>. Events with
+    /// <c>ClaimType = "Delisted"</c> are informational (the trading pair was removed from the
+    /// exchange) and do not suppress ledger entries \u2014 the underlying asset may still be valid.
     /// Warns about each ignored entry. Returns a new list with post-delisting entries removed.
     /// </summary>
     private List<KrakenLedgerEntry> ApplyDelistingFilter(List<KrakenLedgerEntry> ledger)
     {
         if (_delistedAssets.Count == 0) return ledger;
 
-        // Build lookup: normalised asset name → delisting date
-        var delistingDates = new Dictionary<string, (DateTimeOffset Date, string Notes)>(StringComparer.OrdinalIgnoreCase);
+        // Build lookup: normalised asset → list of (delist, relist?) periods
+        // Multiple events can cover the same asset (e.g. LUNAUSD and LUNAEUR both map to LUNA,
+        // or a pair that was delisted and later relisted more than once).
+        var delistPeriods = new Dictionary<string, List<(DateTimeOffset Delist, DateTimeOffset? Relist, string Notes)>>(
+            StringComparer.OrdinalIgnoreCase);
         foreach (var evt in _delistedAssets)
         {
-            if (!string.IsNullOrWhiteSpace(evt.Asset))
-                delistingDates[evt.Asset.Trim()] = (evt.DelistingDate, evt.Notes);
+            // Only Negligible Value claims suppress ledger entries.
+            // ClaimType="Delisted" means the trading pair was removed from the exchange;
+            // the underlying asset may still be held or traded via other pairs — no CGT effect.
+            if (!string.Equals(evt.ClaimType, "Negligible Value", StringComparison.OrdinalIgnoreCase))
+                continue;
+            var asset = evt.EffectiveAsset;
+            if (string.IsNullOrWhiteSpace(asset)) continue;
+            if (!delistPeriods.TryGetValue(asset, out var list))
+                delistPeriods[asset] = list = new List<(DateTimeOffset, DateTimeOffset?, string)>();
+            list.Add((evt.DelistingDate, evt.RelistDate, evt.Notes));
         }
 
         var filtered = new List<KrakenLedgerEntry>(ledger.Count);
         foreach (var entry in ledger)
         {
-            if (delistingDates.TryGetValue(entry.NormalisedAsset, out var delisting)
-                && entry.DateTime > delisting.Date)
+            if (!delistPeriods.TryGetValue(entry.NormalisedAsset, out var periods))
             {
+                filtered.Add(entry);
+                continue;
+            }
+
+            // Check whether this entry falls inside any delist period
+            bool inDelistPeriod = false;
+            DateTimeOffset delistDate = default;
+            DateTimeOffset? relistDate = null;
+            string delistNotes = "";
+            foreach (var (delist, relist, notes) in periods)
+            {
+                if (entry.DateTime > delist && (relist == null || entry.DateTime < relist))
+                {
+                    inDelistPeriod = true;
+                    delistDate = delist;
+                    relistDate = relist;
+                    delistNotes = notes;
+                    break;
+                }
+            }
+
+            if (inDelistPeriod)
+            {
+                var suffix = relistDate.HasValue
+                    ? $" Pair relisted on {relistDate.Value:dd/MM/yyyy}."
+                    : "";
                 _warnings.Add(new CalculationWarning
                 {
                     Level = WarningLevel.Warning,
                     Category = "Delisting",
                     Message = $"Ignored post-delisting ledger entry for {entry.NormalisedAsset}: " +
                               $"type={entry.Type}, amount={entry.Amount}, fee={entry.Fee} on {entry.DateTime:dd/MM/yyyy HH:mm}. " +
-                              $"Asset marked as delisted on {delisting.Date:dd/MM/yyyy}" +
-                              (string.IsNullOrWhiteSpace(delisting.Notes) ? "." : $" ({delisting.Notes})."),
+                              $"Pair marked as delisted on {delistDate:dd/MM/yyyy}." + suffix +
+                              (string.IsNullOrWhiteSpace(delistNotes) ? "" : $" ({delistNotes})"),
                     Date = entry.DateTime,
                     Asset = entry.NormalisedAsset,
                     LedgerId = entry.LedgerId
                 });
-                continue;
             }
-            filtered.Add(entry);
+            else
+            {
+                filtered.Add(entry);
+            }
         }
 
         return filtered;
     }
 
     /// <summary>
-    /// For each user-defined delisting event, injects a synthetic disposal event that
-    /// sells the entire holding at £0 proceeds. The actual quantity is set to decimal.MaxValue
-    /// as a sentinel — CalculateDisposals will clamp it to whatever the S104 pool contains.
+    /// For each <see cref="DelistedAssetEvent"/> with <c>ClaimType = "Negligible Value"</c>,
+    /// injects a synthetic disposal event that sells the entire holding at £0 proceeds.
+    /// Events with <c>ClaimType = "Delisted"</c> are informational (the trading pair was
+    /// removed from the exchange) and do not trigger a CGT disposal — the underlying asset
+    /// may still be held or tradeable via other pairs.
+    /// When a <see cref="DelistedAssetEvent.RelistDate"/> is present the pair was only
+    /// temporarily unavailable, so no £0 disposal is injected for that period.
     /// </summary>
     private void InjectDelistingDisposals(List<CgtEvent> events)
     {
         foreach (var delisting in _delistedAssets)
         {
-            var asset = delisting.Asset?.Trim();
+            // Only Negligible Value claims warrant a £0 disposal.
+            // A "Delisted" entry records that a specific trading pair was removed;
+            // it does not mean the underlying asset has become worthless.
+            if (!string.Equals(delisting.ClaimType, "Negligible Value", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var asset = delisting.EffectiveAsset;
             if (string.IsNullOrWhiteSpace(asset)) continue;
+
+            // If the pair was relisted the asset came back — no £0 disposal is warranted
+            if (delisting.RelistDate.HasValue) continue;
 
             // Sum all acquisitions and disposals for this asset up to the delisting date
             // to determine the holding at delisting time.
@@ -199,7 +253,7 @@ public class CgtCalculationService
                 {
                     Level = WarningLevel.Info,
                     Category = "Delisting",
-                    Message = $"Delisting event for {asset} on {delisting.DelistingDate:dd/MM/yyyy}: no holding to dispose" +
+                    Message = $"Delisting event for {asset} (pair: {delisting.Pair}) on {delisting.DelistingDate:dd/MM/yyyy}: no holding to dispose" +
                               (string.IsNullOrWhiteSpace(delisting.Notes) ? "." : $" ({delisting.Notes})."),
                     Date = delisting.DelistingDate,
                     Asset = asset
@@ -215,15 +269,15 @@ public class CgtCalculationService
                 Quantity = holding,
                 Fee = 0,
                 GbpValue = 0m,
-                RefId = $"DELISTING-{asset}",
-                LedgerId = $"DELISTING-{asset}"
+                RefId = $"DELISTING-{asset}-{delisting.Pair}",
+                LedgerId = $"DELISTING-{asset}-{delisting.Pair}"
             });
 
             _warnings.Add(new CalculationWarning
             {
                 Level = WarningLevel.Info,
                 Category = "Delisting",
-                Message = $"Delisting event: {holding} {asset} disposed at £0 proceeds on {delisting.DelistingDate:dd/MM/yyyy}. " +
+                Message = $"Delisting event: {holding} {asset} (pair: {delisting.Pair}) disposed at £0 proceeds on {delisting.DelistingDate:dd/MM/yyyy}. " +
                           $"The loss equals the Section 104 pool cost basis" +
                           (string.IsNullOrWhiteSpace(delisting.Notes) ? "." : $" ({delisting.Notes})."),
                 Date = delisting.DelistingDate,

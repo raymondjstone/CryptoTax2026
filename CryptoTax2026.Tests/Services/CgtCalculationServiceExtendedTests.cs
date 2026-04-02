@@ -24,7 +24,7 @@ public class CgtCalculationServiceExtendedTests
         var fx = TestFxHelper.CreateWithDefaultRates(warnings);
         var delisted = new List<DelistedAssetEvent>
         {
-            new() { Asset = "LUNA", DelistingDate = new DateTimeOffset(2023, 5, 15, 0, 0, 0, TimeSpan.Zero) }
+            new() { Asset = "LUNA", ClaimType = "Negligible Value", DelistingDate = new DateTimeOffset(2023, 5, 15, 0, 0, 0, TimeSpan.Zero) }
         };
         var calc = new CgtCalculationService(fx, warnings, delistedAssets: delisted);
 
@@ -54,7 +54,7 @@ public class CgtCalculationServiceExtendedTests
         var fx = TestFxHelper.CreateWithDefaultRates(warnings);
         var delisted = new List<DelistedAssetEvent>
         {
-            new() { Asset = "LUNA", DelistingDate = new DateTimeOffset(2023, 7, 1, 0, 0, 0, TimeSpan.Zero) }
+            new() { Asset = "LUNA", ClaimType = "Negligible Value", DelistingDate = new DateTimeOffset(2023, 7, 1, 0, 0, 0, TimeSpan.Zero) }
         };
         var calc = new CgtCalculationService(fx, warnings, delistedAssets: delisted);
 
@@ -81,7 +81,7 @@ public class CgtCalculationServiceExtendedTests
         var fx = TestFxHelper.CreateWithDefaultRates(warnings);
         var delisted = new List<DelistedAssetEvent>
         {
-            new() { Asset = "LUNA", DelistingDate = new DateTimeOffset(2023, 8, 1, 0, 0, 0, TimeSpan.Zero) }
+            new() { Asset = "LUNA", ClaimType = "Negligible Value", DelistingDate = new DateTimeOffset(2023, 8, 1, 0, 0, 0, TimeSpan.Zero) }
         };
         var calc = new CgtCalculationService(fx, warnings, delistedAssets: delisted);
 

@@ -59,6 +59,17 @@ namespace CryptoTax2026
                 return;
             }
 
+            // Check for --Backup {dir} command line argument
+            var backupFlagIndex = Array.FindIndex(commandLineArgs,
+                a => a.Equals("--Backup", StringComparison.OrdinalIgnoreCase));
+            if (backupFlagIndex >= 0 && backupFlagIndex + 1 < commandLineArgs.Length)
+            {
+                var backupDir = commandLineArgs[backupFlagIndex + 1];
+                await RunBackupModeAsync(backupDir);
+                Current.Exit();
+                return;
+            }
+
             var splash = new SplashHostWindow();
             splash.Activate();
 
@@ -201,6 +212,70 @@ namespace CryptoTax2026
             catch (Exception ex)
             {
                 Console.WriteLine($"✗ Sync failed: {ex.Message}");
+                Console.WriteLine($"Stack trace: {ex.StackTrace}");
+            }
+        }
+
+        /// <summary>
+        /// Runs the application in headless backup mode — loads the saved ledger and FX rates
+        /// from disk, runs the CGT calculation, exports all tax years to an Excel file in
+        /// <paramref name="backupDir"/>, then exits.  No network calls are made.
+        /// </summary>
+        private async Task RunBackupModeAsync(string backupDir)
+        {
+            Console.WriteLine($"CryptoTax2026: Starting backup export to '{backupDir}'...");
+
+            try
+            {
+                var customDataPath = TradeStorageService.LoadCustomDataPath();
+                var storageService = new TradeStorageService(customDataPath);
+                var settings = await storageService.LoadSettingsAsync();
+
+                if (!storageService.HasSavedLedger())
+                {
+                    Console.WriteLine("Error: No ledger data found. Please sync data first.");
+                    return;
+                }
+
+                Console.WriteLine("Loading ledger...");
+                var ledger = await storageService.LoadLedgerAsync();
+                Console.WriteLine($"✓ Loaded {ledger.Count} ledger entries");
+
+                Console.WriteLine("Loading FX rates from cache...");
+                var warnings = new List<CalculationWarning>();
+                var fxService = new FxConversionService(
+                    new KrakenApiService(), warnings, storageService.GetDataFolderPath(), settings.FxRateType);
+                fxService.LoadAllFromDiskCache();
+                Console.WriteLine("✓ FX rates loaded from cache");
+
+                Console.WriteLine("Calculating tax years...");
+                var summaries = await Task.Run(() =>
+                {
+                    var svc = new CgtCalculationService(
+                        fxService, warnings,
+                        new List<KrakenTrade>(),
+                        settings.EffectiveDelistedAssets,
+                        settings.CostBasisOverrides);
+                    return svc.CalculateAllTaxYears(ledger, settings.TaxYearInputs);
+                });
+                Console.WriteLine($"✓ Calculated {summaries.Count} tax year(s)");
+
+                if (warnings.Count > 0)
+                    Console.WriteLine($"⚠ {warnings.Count} warning(s) during calculation");
+
+                System.IO.Directory.CreateDirectory(backupDir);
+
+                var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                var excelPath = System.IO.Path.Combine(backupDir, $"CryptoTax_backup_{timestamp}.xlsx");
+
+                Console.WriteLine($"Exporting to '{excelPath}'...");
+                var exportService = new ExportService();
+                exportService.ExportAllYearsToExcel(excelPath, summaries);
+                Console.WriteLine($"✓ Export complete: {excelPath}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"✗ Backup failed: {ex.Message}");
                 Console.WriteLine($"Stack trace: {ex.StackTrace}");
             }
         }

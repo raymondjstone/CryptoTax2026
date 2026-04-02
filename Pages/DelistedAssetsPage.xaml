@@ -9,35 +9,55 @@
     NavigationCacheMode="Required">
 
     <ScrollViewer Padding="0,0,20,0">
-        <StackPanel Spacing="16" MaxWidth="800" HorizontalAlignment="Left">
+        <StackPanel Spacing="16" MaxWidth="900" HorizontalAlignment="Left">
 
-            <TextBlock Text="Delisted Assets &amp; Negligible Value Claims" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Text="Delisted Pairs &amp; Negligible Value Claims" Style="{StaticResource TitleTextBlockStyle}" />
             <InfoBar x:Name="InfoMessage" IsOpen="False" />
 
-            <TextBlock Text="Mark assets as delisted or make a negligible value claim. On the specified date, the entire holding is treated as disposed at £0 (crystallising a loss). For delisted assets, ledger entries after that date are also ignored."
-                       TextWrapping="Wrap" Opacity="0.7" />
+            <TextBlock TextWrapping="Wrap" Opacity="0.7">
+                <Run FontWeight="SemiBold">Negligible Value</Run>
+                <Run>— the asset became worthless. On the specified date the entire holding is treated as disposed at £0, crystallising a capital loss. Ledger entries after that date are ignored.</Run>
+                <Run xml:space="preserve">  </Run>
+                <Run FontWeight="SemiBold">Delisted</Run>
+                <Run>— a specific trading pair was removed from Kraken. Informational only: no £0 disposal is injected and calculations are unaffected. If the pair was later relisted, set a relist date.</Run>
+            </TextBlock>
 
-            <ListView x:Name="DelistedAssetsList" SelectionMode="None" MaxWidth="750" HorizontalAlignment="Left">
+            <ToggleSwitch x:Name="IgnoreAutoToggle"
+                          Header="Ignore automatically-determined delistings"
+                          OnContent="Only my configured entries are used — Kraken database entries are excluded"
+                          OffContent="Kraken pair-events database entries are shown and available to import"
+                          Toggled="IgnoreAutoToggle_Toggled" />
+
+            <ListView x:Name="DelistedAssetsList" SelectionMode="None" MaxWidth="870" HorizontalAlignment="Left">
                 <ListView.ItemTemplate>
                     <DataTemplate>
-                        <Grid ColumnSpacing="12" Padding="0,4">
+                        <Grid ColumnSpacing="10" Padding="0,4">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="100" />
                                 <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="100" />
+                                <ColumnDefinition Width="100" />
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="{Binding Asset}" VerticalAlignment="Center" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="1" Text="{Binding DateFormatted}" VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="2" Text="{Binding DisplayText}" VerticalAlignment="Center" Opacity="0.7" TextTrimming="CharacterEllipsis" />
-                            <Button Grid.Column="3" Content="Remove" Tag="{Binding Index}"
+                            <TextBlock Grid.Column="0" Text="{Binding Pair}" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="1" Text="{Binding DelistDateFormatted}" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="2" Text="{Binding RelistDateFormatted}" VerticalAlignment="Center" Opacity="0.7" />
+                            <TextBlock Grid.Column="3" Text="{Binding DisplayText}" VerticalAlignment="Center" Opacity="0.7" TextTrimming="CharacterEllipsis" />
+                            <Button Grid.Column="4" Content="Edit" Tag="{Binding Index}"
+                                    Click="EditDelistedAsset_Click" Padding="8,4" Margin="0,0,4,0" />
+                            <Button Grid.Column="5" Content="Remove" Tag="{Binding Index}"
                                     Click="RemoveDelistedAsset_Click" Padding="8,4" />
                         </Grid>
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
 
-            <TextBlock x:Name="EmptyMessage" Text="No delisted assets configured." Opacity="0.5" FontStyle="Italic" />
+            <TextBlock x:Name="EmptyMessage" Text="No delisted pairs configured." Opacity="0.5" FontStyle="Italic" />
+            <TextBlock Text="~ Dates prefixed with ~ are estimates based on monthly Wayback Machine archive snapshots of the Kraken API."
+                       TextWrapping="Wrap" FontStyle="Italic" FontSize="11" Opacity="0.6" />
+            <TextBlock x:Name="KrakenEntriesHiddenInfo" Visibility="Collapsed"
+                       FontStyle="Italic" FontSize="11" Opacity="0.7" TextWrapping="Wrap" />
 
             <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
 
@@ -49,14 +69,55 @@
                         <ComboBoxItem Content="Delisted" Tag="Delisted" />
                         <ComboBoxItem Content="Negligible Value" Tag="Negligible Value" />
                     </ComboBox>
-                    <TextBox x:Name="DelistAssetBox" Header="Asset" PlaceholderText="e.g. LUNA" Width="120" />
-                    <CalendarDatePicker x:Name="DelistDatePicker" Header="Date" PlaceholderText="Pick a date" Width="220" />
+                    <TextBox x:Name="DelistPairBox" Header="Pair" PlaceholderText="e.g. LUNAUSD" Width="140" />
+                    <CalendarDatePicker x:Name="DelistDatePicker" Header="Delist Date" PlaceholderText="Pick a date" Width="200" />
+                    <CalendarDatePicker x:Name="RelistDatePicker" Header="Relist Date (optional)" PlaceholderText="Pick a date" Width="200" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <TextBox x:Name="DelistNotesBox" Header="Notes" PlaceholderText="Optional notes" Width="300" />
                     <Button x:Name="AddDelistedBtn" Content="Add" Style="{StaticResource AccentButtonStyle}"
                             Click="AddDelistedAsset_Click" VerticalAlignment="Bottom" Margin="0,0,0,1" />
                 </StackPanel>
+            </StackPanel>
+
+            <StackPanel x:Name="AutoDelistingsSection" Spacing="16">
+                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
+
+                <TextBlock Text="Kraken Delisted Pairs (2023 onwards)" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <TextBlock Text="All pairs delisted from Kraken since 6 April 2023, sourced from the bundled pair-events database. Dates are estimates (~) based on monthly Wayback Machine snapshots. Use the search box to filter. Import any pair to add it to your configured list above."
+                           TextWrapping="Wrap" Opacity="0.7" />
+
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBox x:Name="PairSearchBox" Header="Filter" PlaceholderText="e.g. LUNA" Width="220"
+                             TextChanged="PairSearchBox_TextChanged" />
+                </StackPanel>
+                <TextBlock Text="One pair per asset is shown by default — the best available quote currency (GBP &gt; USD &gt; USDT &gt; EUR). Type a name to search and see all variants."
+                           TextWrapping="Wrap" FontStyle="Italic" FontSize="11" Opacity="0.6" />
+
+                <ListView x:Name="DefaultPairsList" SelectionMode="None" MaxWidth="870" HorizontalAlignment="Left"
+                          MaxHeight="500">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnSpacing="10" Padding="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="120" />
+                                    <ColumnDefinition Width="110" />
+                                    <ColumnDefinition Width="110" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding Pair}" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="1" Text="{Binding DelistDateFormatted}" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="2" Text="{Binding RelistDateFormatted}" VerticalAlignment="Center" Opacity="0.7" />
+                                <TextBlock Grid.Column="3" Text="{Binding DisplayText}" VerticalAlignment="Center" Opacity="0.7" TextTrimming="CharacterEllipsis" />
+                                <Button Grid.Column="4" Content="Import" Tag="{Binding Index}"
+                                        Click="ImportDefaultPair_Click" Padding="8,4" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <TextBlock x:Name="DefaultsEmptyMessage" Text="Type a pair name above to search the Kraken pair-events database." Opacity="0.5" FontStyle="Italic" />
             </StackPanel>
 
         </StackPanel>

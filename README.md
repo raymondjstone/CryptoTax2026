@@ -44,7 +44,15 @@ A Windows desktop application that connects to the Kraken cryptocurrency exchang
   - **Annual exempt amount** — applied per tax year at the correct historical rate
   - **CGT rate banding** — splits gains between basic and higher rate based on your taxable income
   - **Loss carry-forward** — automatically carries forward allowable losses to offset future gains
-- **Handles delisted assets** — configure assets that have been delisted/become worthless for synthetic disposal at £0 proceeds
+- **Handles delisted trading pairs and negligible value claims** — two distinct claim types:
+  - **Negligible Value** — the underlying asset became worthless (e.g. a hacked stablecoin). On the delist date the entire holding is treated as disposed at £0, crystallising a capital loss. Ledger entries after that date are ignored
+  - **Delisted** — a specific Kraken trading pair was removed from the exchange. Informational only: no £0 disposal is injected and CGT calculations are unaffected. The underlying asset may still be held or tradeable via other pairs
+  - **Relist support** — if a pair was subsequently relisted, set a relist date: entries during the delisted gap are ignored but no £0 disposal is injected
+  - **Kraken pair-events database** — the app ships with a bundled database of 1,500+ Kraken pairs that have ever been delisted, built from Wayback Machine archive snapshots of the Kraken API. The Delisted Pairs page shows all pairs delisted since 6 April 2023 (2023/24 tax year) with one-click import. Dates are marked `~` to indicate they are estimates based on ~monthly snapshots
+  - **Edit dates** — click Edit on any configured entry to adjust its delist and relist dates (useful when you have a more precise date than the estimate)
+  - **Ignore auto-delistings toggle** — a toggle on the Delisted Pairs page lets you ignore all entries sourced from the Kraken pair-events database (Notes = "Kraken") and use only your manually configured entries for calculations. This also hides the Kraken database section from the page
+  - **Automatic settings migration** — on first launch after upgrading, any pre-existing manually-added entries with ClaimType "Delisted" are automatically upgraded to "Negligible Value" so that they continue to crystallise a capital loss (the old behaviour). Entries imported from the Kraken database (Notes = "Kraken") remain as "Delisted" (informational) and are unaffected
+  - Delisting is tracked by **trading pair** (e.g. `LUNAUSD`), not by asset name, so each pair's history is independent
 - **Cost basis overrides** — manually override the allowable cost for any disposal (e.g. when you transferred crypto from another exchange at a known purchase price)
 - **Disposal notes** — attach notes to individual disposals for your records
 - **Tracks staking rewards** as miscellaneous income (separate from CGT), valued at GBP market rate on the date received
@@ -164,6 +172,36 @@ Downloading FX rates...
 ✓ Sync completed successfully
 ```
 
+## Headless Backup Export
+
+The `--Backup` flag exports all calculated tax-year data to an Excel file without opening the UI. No network calls are made — it uses the data already on disk.
+
+### Command Line Usage
+
+```bash
+CryptoTax2026.exe --Backup "C:\MyBackups"
+```
+
+This will:
+1. Start the application in headless mode (no UI)
+2. Load your saved ledger and FX rates from the local cache
+3. Run the full CGT calculation
+4. Export all tax years to an Excel workbook named `CryptoTax_backup_YYYYMMDD_HHmmss.xlsx` in the specified directory
+5. Exit automatically when complete
+
+The directory will be created if it does not already exist.
+
+### Scheduling Backup Exports
+
+Combine with `--SyncData` in a two-step scheduled task:
+
+```bat
+CryptoTax2026.exe --SyncData
+CryptoTax2026.exe --Backup "C:\MyBackups"
+```
+
+Or use Task Scheduler with separate triggers — sync daily, backup weekly.
+
 ### Error Handling
 
 If the sync fails (e.g., API connection issues, invalid credentials), the application will:
@@ -244,6 +282,24 @@ The test project is at `CryptoTax2026.Tests/` and uses xUnit. Run with:
 ```
 dotnet test CryptoTax2026.Tests/CryptoTax2026.Tests.csproj -p:Platform=x64
 ```
+
+## Utilities
+
+### Kraken Delisted Finder (`kraken delisted finder.py`)
+
+A Python script that rebuilds the bundled `Assets/kraken_pairs_events.json` database by crawling the Wayback Machine's CDX index for monthly snapshots of the Kraken public `AssetPairs` API and diffing consecutive snapshots to detect when pairs appeared and disappeared.
+
+**Requirements**: Python 3, `requests` library.
+
+**Usage**:
+```bash
+pip install requests
+python "kraken delisted finder.py"
+```
+
+The script writes `Assets\kraken_pairs_events.json` directly. Re-run it periodically to pick up newly delisted pairs. The output records each pair's full delist/relist event history and is consumed by `KrakenPairEventsService` at runtime.
+
+**Note on date accuracy**: Because Wayback Machine snapshots are approximately monthly, delist and relist dates are estimates within a ~40-day window. The app marks all such dates with `~` in the UI. KUSD's delist date is hardcoded to the confirmed date of 14 July 2025, overriding the snapshot-derived estimate.
 
 ## Tech Stack
 

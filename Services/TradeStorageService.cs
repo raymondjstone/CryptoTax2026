@@ -162,11 +162,52 @@ public class TradeStorageService
 
     public async Task<AppSettings> LoadSettingsAsync()
     {
-        if (!File.Exists(_settingsFile))
-            return new AppSettings();
+        AppSettings settings;
 
-        var json = await File.ReadAllTextAsync(_settingsFile);
-        return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+        if (!File.Exists(_settingsFile))
+        {
+            settings = new AppSettings();
+        }
+        else
+        {
+            var json = await File.ReadAllTextAsync(_settingsFile);
+            settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+
+            // Migrate pre-pair-based entries: if Asset is set but Pair is empty, promote Asset → Pair
+            foreach (var evt in settings.DelistedAssets)
+            {
+                if (string.IsNullOrWhiteSpace(evt.Pair) && !string.IsNullOrWhiteSpace(evt.Asset))
+                {
+                    evt.Pair = evt.Asset;
+                    evt.Asset = "";
+                }
+            }
+
+            // Migrate manually-added entries from the pre-ClaimType-semantics era.
+            // Before this version, all DelistedAssetEvents triggered £0 disposal + entry
+            // suppression regardless of ClaimType. Now only "Negligible Value" does.
+            // Entries imported from the Kraken JSON default list have Notes="Kraken" and
+            // correctly stay as "Delisted" (informational). Manually added entries (any other
+            // Notes value) were intentionally added to crystallise a capital loss and must be
+            // upgraded to "Negligible Value" to preserve that behaviour.
+            foreach (var evt in settings.DelistedAssets)
+            {
+                if (string.Equals(evt.ClaimType, "Delisted", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(evt.Notes, "Kraken", StringComparison.OrdinalIgnoreCase))
+                {
+                    evt.ClaimType = "Negligible Value";
+                    settings.AuditLog.Add(new AuditLogEntry
+                    {
+                        Timestamp = DateTimeOffset.UtcNow,
+                        Action = "SettingsMigrated",
+                        Detail = $"Auto-upgraded '{evt.Pair}' ClaimType from 'Delisted' to 'Negligible Value' " +
+                                 "(manually-added entries now require 'Negligible Value' to trigger a £0 disposal)."
+                    });
+                }
+            }
+        }
+
+        return settings;
     }
 
     public string GetDataFolderPath() => _dataFolder;

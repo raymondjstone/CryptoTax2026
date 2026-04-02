@@ -939,7 +939,7 @@ public sealed partial class TaxYearPage : Page
 
         // Run the full CGT calculation with all hypothetical trades
         var tempWarnings = new List<CalculationWarning>();
-        var tempCgtService = new CgtCalculationService(_mainWindow.FxService, tempWarnings, _mainWindow.Trades, _mainWindow.Settings.DelistedAssets, _mainWindow.Settings.CostBasisOverrides);
+        var tempCgtService = new CgtCalculationService(_mainWindow.FxService, tempWarnings, _mainWindow.Trades, _mainWindow.Settings.EffectiveDelistedAssets, _mainWindow.Settings.CostBasisOverrides);
         var tempSummaries = tempCgtService.CalculateAllTaxYears(tempLedger, _mainWindow.Settings.TaxYearInputs);
 
         var whatIfSummary = tempSummaries.FirstOrDefault(s => s.TaxYear == _summary.TaxYear);
