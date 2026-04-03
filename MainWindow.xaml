@@ -47,14 +47,19 @@
                         <SymbolIcon Symbol="Setting" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Ledger" Tag="Ledger">
-                    <NavigationViewItem.Icon>
-                        <SymbolIcon Symbol="List" />
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
                 <NavigationViewItem Content="Delisted Assets" Tag="DelistedAssets">
                     <NavigationViewItem.Icon>
                         <SymbolIcon Symbol="Delete" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="FX Rates" Tag="FxRates">
+                    <NavigationViewItem.Icon>
+                        <SymbolIcon Symbol="Globe" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Ledger" Tag="Ledger">
+                    <NavigationViewItem.Icon>
+                        <SymbolIcon Symbol="List" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem Content="CSV Import" Tag="CsvImport">

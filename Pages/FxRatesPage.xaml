@@ -100,6 +100,7 @@
                                 <ColumnDefinition Width="120" />
                                 <ColumnDefinition Width="120" />
                                 <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Date"    FontWeight="SemiBold" />
                             <TextBlock Grid.Column="1" Text="Open"    FontWeight="SemiBold" />
@@ -107,6 +108,7 @@
                             <TextBlock Grid.Column="3" Text="Low"     FontWeight="SemiBold" />
                             <TextBlock Grid.Column="4" Text="Close"   FontWeight="SemiBold" />
                             <TextBlock Grid.Column="5" Text="Average" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="6" Text="Source"  FontWeight="SemiBold" />
                         </Grid>
                     </DataTemplate>
                 </ListView.HeaderTemplate>
@@ -120,6 +122,7 @@
                                 <ColumnDefinition Width="120" />
                                 <ColumnDefinition Width="120" />
                                 <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="{Binding DateFormatted}" />
                             <TextBlock Grid.Column="1" Text="{Binding OpenFormatted}" />
@@ -127,6 +130,7 @@
                             <TextBlock Grid.Column="3" Text="{Binding LowFormatted}" />
                             <TextBlock Grid.Column="4" Text="{Binding CloseFormatted}" />
                             <TextBlock Grid.Column="5" Text="{Binding AverageFormatted}" />
+                            <TextBlock Grid.Column="6" Text="{Binding SourceFormatted}" Opacity="0.7" />
                         </Grid>
                     </DataTemplate>
                 </ListView.ItemTemplate>
@@ -145,8 +149,8 @@
                     <!-- Add override entry -->
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <TextBox x:Name="ManualAssetBox"
-                                 Header="Asset (e.g. BTC)"
-                                 PlaceholderText="Asset name" Width="160" />
+                                 Header="Pair (e.g. BTCGBP)"
+                                 PlaceholderText="e.g. BTCGBP" Width="160" />
                         <CalendarDatePicker x:Name="ManualDatePicker"
                                             Header="Date" PlaceholderText="Pick a date"
                                             Width="220" />

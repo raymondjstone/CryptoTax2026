@@ -243,8 +243,10 @@ namespace CryptoTax2026
 
                 Console.WriteLine("Loading FX rates from cache...");
                 var warnings = new List<CalculationWarning>();
+                var delistedPrices = DelistedPriceService.TryLoad();
                 var fxService = new FxConversionService(
-                    new KrakenApiService(), warnings, storageService.GetDataFolderPath(), settings.FxRateType);
+                    new KrakenApiService(), warnings, storageService.GetDataFolderPath(), settings.FxRateType,
+                    delistedPrices);
                 fxService.LoadAllFromDiskCache();
                 Console.WriteLine("✓ FX rates loaded from cache");
 

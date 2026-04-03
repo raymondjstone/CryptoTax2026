@@ -13,6 +13,8 @@
 
             <TextBlock Text="Delisted Pairs &amp; Negligible Value Claims" Style="{StaticResource TitleTextBlockStyle}" />
             <InfoBar x:Name="InfoMessage" IsOpen="False" />
+            <InfoBar x:Name="CsvDataWarning" IsOpen="False" IsClosable="False"
+                     Severity="Informational" Title="Delisted pairs price data is incomplete" />
 
             <TextBlock TextWrapping="Wrap" Opacity="0.7">
                 <Run FontWeight="SemiBold">Negligible Value</Run>
@@ -54,7 +56,7 @@
             </ListView>
 
             <TextBlock x:Name="EmptyMessage" Text="No delisted pairs configured." Opacity="0.5" FontStyle="Italic" />
-            <TextBlock Text="~ Dates prefixed with ~ are estimates based on monthly Wayback Machine archive snapshots of the Kraken API."
+            <TextBlock Text="~ Dates prefixed with ~ are estimates from the pair-events database (kraken_pairs_events.json). Dates without ~ are exact, sourced from the bundled kraken_delisted.csv dataset."
                        TextWrapping="Wrap" FontStyle="Italic" FontSize="11" Opacity="0.6" />
             <TextBlock x:Name="KrakenEntriesHiddenInfo" Visibility="Collapsed"
                        FontStyle="Italic" FontSize="11" Opacity="0.7" TextWrapping="Wrap" />
@@ -84,7 +86,7 @@
                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,8" />
 
                 <TextBlock Text="Kraken Delisted Pairs (2023 onwards)" Style="{StaticResource SubtitleTextBlockStyle}" />
-                <TextBlock Text="All pairs delisted from Kraken since 6 April 2023, sourced from the bundled pair-events database. Dates are estimates (~) based on monthly Wayback Machine snapshots. Use the search box to filter. Import any pair to add it to your configured list above."
+                <TextBlock Text="All pairs delisted from Kraken since 6 April 2023. Exact dates come from the bundled kraken_delisted.csv dataset; dates shown with ~ are estimates from the supplementary pair-events database. Use the search box to filter. Import any pair to add it to your configured list above."
                            TextWrapping="Wrap" Opacity="0.7" />
 
                 <StackPanel Orientation="Horizontal" Spacing="8">

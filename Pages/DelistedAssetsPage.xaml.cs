@@ -13,6 +13,7 @@ public sealed partial class DelistedAssetsPage : Page
 {
     private MainWindow? _mainWindow;
     private KrakenPairEventsService? _pairEventsSvc;
+    private DelistedPriceService? _delistedPriceSvc;
     private bool _initializingToggle;
 
     // All default events loaded from the JSON, used for searching
@@ -29,22 +30,69 @@ public sealed partial class DelistedAssetsPage : Page
         {
             _mainWindow = mw;
             _pairEventsSvc = KrakenPairEventsService.TryLoad();
-            if (_pairEventsSvc != null)
+            _delistedPriceSvc = mw.DelistedPriceService;
+
+            // Show stale CSV data warning when the dataset doesn't reach the tax year end
+            if (_delistedPriceSvc != null && _delistedPriceSvc.IsDataStale(out var taxYearEnd))
             {
-                _allDefaults = _pairEventsSvc.GetDefaultDelistEvents()
-                        .Select((d, i) => new DefaultPairViewModel
-                        {
-                            Pair = d.Pair,
-                            DelistDateFormatted = "~" + d.DelistingDate.ToString("dd/MM/yyyy"),
-                            RelistDateFormatted = d.RelistDate.HasValue
-                                ? "~" + d.RelistDate.Value.ToString("dd/MM/yyyy")
-                                : "—",
-                            DisplayText = d.RelistDate.HasValue ? "Relisted" : "Still delisted",
-                            Source = d
-                        })
-                        .OrderBy(d => d.Pair)
-                        .ToList();
+                CsvDataWarning.Message =
+                    $"kraken_delisted.csv has data up to {_delistedPriceSvc.LatestDataDate:dd/MM/yyyy}, " +
+                    $"before the tax year end ({taxYearEnd:dd/MM/yyyy}). " +
+                    $"FX prices from the CSV may be unavailable for the remaining period — " +
+                    $"update the file when newer data is available.";
+                CsvDataWarning.IsOpen = true;
             }
+            else
+            {
+                CsvDataWarning.IsOpen = false;
+            }
+
+            // Build merged defaults: CSV (exact dates) wins over JSON (~ estimates).
+            // JSON supplies relist dates that the CSV does not have.
+            var csvEvents = _delistedPriceSvc?.GetDelistEvents()
+                .ToDictionary(d => d.Pair.ToUpperInvariant(), StringComparer.OrdinalIgnoreCase)
+                ?? new Dictionary<string, DelistedAssetEvent>(StringComparer.OrdinalIgnoreCase);
+
+            var jsonEvents = _pairEventsSvc?.GetDefaultDelistEvents()
+                .ToDictionary(d => d.Pair.ToUpperInvariant(), StringComparer.OrdinalIgnoreCase)
+                ?? new Dictionary<string, DelistedAssetEvent>(StringComparer.OrdinalIgnoreCase);
+
+            var allPairs = new HashSet<string>(
+                csvEvents.Keys.Concat(jsonEvents.Keys),
+                StringComparer.OrdinalIgnoreCase);
+
+            _allDefaults = allPairs.Select(pair =>
+            {
+                var hasCsv  = csvEvents.TryGetValue(pair, out var csvEv);
+                var hasJson = jsonEvents.TryGetValue(pair, out var jsonEv);
+
+                // CSV gives accurate delist date; JSON gives relist date
+                var delistDate = hasCsv ? csvEv!.DelistingDate : jsonEv!.DelistingDate;
+                var isEstimate = !hasCsv;
+                var relistDate = hasJson ? jsonEv!.RelistDate : null;
+
+                var sourceEvent = new DelistedAssetEvent
+                {
+                    Pair = pair,
+                    DelistingDate = delistDate,
+                    RelistDate = relistDate,
+                    Notes = "Kraken",
+                    ClaimType = "Delisted"
+                };
+
+                return new DefaultPairViewModel
+                {
+                    Pair = pair,
+                    DelistDateFormatted = (isEstimate ? "~" : "") + delistDate.ToString("dd/MM/yyyy"),
+                    RelistDateFormatted = relistDate.HasValue
+                        ? (isEstimate ? "~" : "") + relistDate.Value.ToString("dd/MM/yyyy")
+                        : "—",
+                    DisplayText = relistDate.HasValue ? "Relisted" : "Still delisted",
+                    Source = sourceEvent
+                };
+            })
+            .OrderBy(d => d.Pair)
+            .ToList();
 
             // Set toggle state without firing the Toggled handler
             _initializingToggle = true;
@@ -109,11 +157,11 @@ public sealed partial class DelistedAssetsPage : Page
 
     private void UpdateDefaultsList(string filter)
     {
-        if (_pairEventsSvc == null)
+        if (_allDefaults.Count == 0)
         {
             DefaultPairsList.ItemsSource = null;
             DefaultsEmptyMessage.Visibility = Visibility.Visible;
-            DefaultsEmptyMessage.Text = "Kraken pair-events database not found.";
+            DefaultsEmptyMessage.Text = "Delisted pairs database not found (kraken_pairs_events.json / kraken_delisted.csv).";
             return;
         }
 

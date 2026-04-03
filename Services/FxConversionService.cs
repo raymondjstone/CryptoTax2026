@@ -67,7 +67,17 @@ public class FxConversionService
     // Manual overrides: asset → sorted timestamp → GBP rate (same structure as _rateCache)
     private readonly Dictionary<string, SortedList<long, decimal>> _manualOverrides = new(StringComparer.OrdinalIgnoreCase);
 
-    public FxConversionService(KrakenApiService krakenApi, List<CalculationWarning> warnings, string? dataFolder = null, FxRateType rateType = FxRateType.Average)
+    // Delisted-pairs CSV fallback — provides OHLC prices when Kraken API has no data
+    private readonly DelistedPriceService? _delistedPrices;
+
+    // Cache keys and currencies actually needed for the most-recently loaded ledger.
+    // When non-empty, GetCacheStats() filters to only the relevant pairs.
+    private HashSet<string> _activeCacheKeys = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _activeCurrencies = new(StringComparer.OrdinalIgnoreCase);
+    // CSV pair altnames (GBP and USD-quoted only) needed for the current ledger.
+    private HashSet<string> _activeCsvPairNames = new(StringComparer.OrdinalIgnoreCase);
+
+    public FxConversionService(KrakenApiService krakenApi, List<CalculationWarning> warnings, string? dataFolder = null, FxRateType rateType = FxRateType.Average, DelistedPriceService? delistedPrices = null)
     {
         _krakenApi = krakenApi;
         _warnings = warnings;
@@ -84,9 +94,24 @@ public class FxConversionService
 
         Directory.CreateDirectory(_cacheFolder);
 
+        _delistedPrices = delistedPrices;
         _fallbackHttp = new HttpClient();
         LoadManualOverrides();
         _fallbackHttp.DefaultRequestHeaders.Add("User-Agent", "CryptoTax2026/1.0");
+
+        // Warn when the CSV dataset doesn't extend to the current tax year end
+        if (_delistedPrices != null && _delistedPrices.IsDataStale(out var taxYearEnd))
+        {
+            _warnings.Add(new CalculationWarning
+            {
+                Level = WarningLevel.Info,
+                Category = "Delisted Prices",
+                Message = $"Delisted pairs price data (kraken_delisted.csv) extends to " +
+                          $"{_delistedPrices.LatestDataDate:dd/MM/yyyy}, before the tax year end " +
+                          $"({taxYearEnd:dd/MM/yyyy}). FX prices for any pair that was still " +
+                          $"trading after that date will be missing from the CSV fallback."
+            });
+        }
 
         // Load any previously discovered Kraken pairs from cache
         LoadKrakenDiscoveredPairs();
@@ -105,6 +130,42 @@ public class FxConversionService
     public void SetRateType(FxRateType rateType)
     {
         _rateType = rateType;
+    }
+
+    /// <summary>
+    /// Records which currency pairs are relevant for the current ledger so that
+    /// <see cref="GetCacheStats"/> can suppress unrelated pairs.
+    /// Call this after <see cref="LoadAllFromDiskCache"/> on the startup (cache-only) path.
+    /// </summary>
+    public void SetActiveCurrencies(IEnumerable<string> rawCurrencies)
+    {
+        var needed = rawCurrencies
+            .Select(c => KrakenLedgerEntry.NormaliseAssetName(c).ToUpperInvariant())
+            .Where(c => c != "GBP")
+            .Distinct()
+            .ToList();
+        UpdateActiveSets(needed);
+    }
+
+    private void UpdateActiveSets(IEnumerable<string> neededCurrencies)
+    {
+        _activeCurrencies = new HashSet<string>(neededCurrencies, StringComparer.OrdinalIgnoreCase);
+        var activeKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "GBPUSD" };
+        var activeCsvPairs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var currency in neededCurrencies)
+        {
+            if (_pairMap.TryGetValue((currency, "GBP"), out var gp)) activeKeys.Add(gp.CacheKey);
+            if (_pairMap.TryGetValue((currency, "USD"), out var up)) activeKeys.Add(up.CacheKey);
+            if (_delistedPrices != null)
+            {
+                var csvGbp = _delistedPrices.GetPairAltname(currency, "GBP");
+                if (csvGbp != null) activeCsvPairs.Add(csvGbp);
+                var csvUsd = _delistedPrices.GetPairAltname(currency, "USD");
+                if (csvUsd != null) activeCsvPairs.Add(csvUsd);
+            }
+        }
+        _activeCacheKeys = activeKeys;
+        _activeCsvPairNames = activeCsvPairs;
     }
 
     /// <summary>
@@ -259,6 +320,8 @@ public class FxConversionService
             // Clean up: Remove the old section that tried CryptoCompare as backup for failed Kraken currencies
             // This is no longer needed since we now prioritize Kraken USD pairs over CryptoCompare
         }
+
+        UpdateActiveSets(neededCurrencies);
 
         progress?.Report((loaded, $"FX rates loaded for {loaded} pairs."));
 
@@ -763,13 +826,26 @@ public class FxConversionService
             return usdVal * GetRate("USD", "GBP", timestamp);
         }
 
-        // Manual override: user-supplied dated GBP rate(s), interpolated like real rates
-        if (_manualOverrides.TryGetValue(fromCurrency, out var manualRates) && manualRates.Count > 0)
+        // Fallback to delisted pairs CSV — covers periods where Kraken API has no data
+        if (_delistedPrices != null)
         {
-            var manualRate = FindClosestManualRate(manualRates, timestamp);
-            if (manualRate != 0)
-                return amount * manualRate;
+            var csvGbp = _delistedPrices.TryGetRate(fromCurrency, "GBP", timestamp);
+            if (csvGbp != null)
+                return amount * csvGbp.GetRate(_rateType);
+
+            var csvUsd = _delistedPrices.TryGetRate(fromCurrency, "USD", timestamp);
+            if (csvUsd != null)
+                return amount * csvUsd.GetRate(_rateType) * GetRate("USD", "GBP", timestamp);
+
+            var csvEur = _delistedPrices.TryGetRate(fromCurrency, "EUR", timestamp);
+            if (csvEur != null)
+                return amount * csvEur.GetRate(_rateType) * GetRate("EUR", "GBP", timestamp);
         }
+
+        // Manual override: user-supplied pair rates (e.g. BTCGBP, KUSD), GBP/USD/EUR-quoted
+        var manualResult = TryGetManualRate(fromCurrency, timestamp);
+        if (manualResult.HasValue)
+            return amount * manualResult.Value;
 
         // No rate available
         if (_warnedAssets.Add($"{fromCurrency}_{DateOnly.FromDateTime(date.UtcDateTime)}"))
@@ -827,6 +903,47 @@ public class FxConversionService
             return 1m / closestRate;
 
         return closestRate;
+    }
+
+    /// <summary>
+    /// Looks up a user-supplied manual pair rate for <paramref name="fromCurrency"/> and
+    /// converts it to a GBP value.  Checks GBP-quoted pairs first, then USD, then EUR.
+    /// e.g. a stored key of "BTCGBP" gives a direct GBP rate;
+    ///      "KUSD" (or "BTCUSD") is multiplied by the USD/GBP rate.
+    /// </summary>
+    private decimal? TryGetManualRate(string fromCurrency, long timestamp)
+    {
+        // GBP-quoted pairs → direct rate
+        foreach (var suffix in (ReadOnlySpan<string>)["GBP", "ZGBP"])
+        {
+            if (_manualOverrides.TryGetValue($"{fromCurrency}{suffix}", out var r) && r.Count > 0)
+            {
+                var rate = FindClosestManualRate(r, timestamp);
+                if (rate != 0) return rate;
+            }
+        }
+
+        // USD-quoted pairs → convert via USD/GBP
+        foreach (var suffix in (ReadOnlySpan<string>)["USD", "ZUSD"])
+        {
+            if (_manualOverrides.TryGetValue($"{fromCurrency}{suffix}", out var r) && r.Count > 0)
+            {
+                var rate = FindClosestManualRate(r, timestamp);
+                if (rate != 0) return rate * GetRate("USD", "GBP", timestamp);
+            }
+        }
+
+        // EUR-quoted pairs → convert via EUR/GBP
+        foreach (var suffix in (ReadOnlySpan<string>)["EUR", "ZEUR"])
+        {
+            if (_manualOverrides.TryGetValue($"{fromCurrency}{suffix}", out var r) && r.Count > 0)
+            {
+                var rate = FindClosestManualRate(r, timestamp);
+                if (rate != 0) return rate * GetRate("EUR", "GBP", timestamp);
+            }
+        }
+
+        return null;
     }
 
     private static decimal FindClosestRate(SortedList<long, OhlcCandle> rates, long targetTimestamp, FxRateType rateType)
@@ -908,6 +1025,23 @@ public class FxConversionService
         // Try via USD
         var usdRate = TryGetRateInfo(fromCurrency, "USD", timestamp);
         if (usdRate != null) return usdRate;
+
+        // Try CSV fallback
+        if (_delistedPrices != null)
+        {
+            var csvCandle = _delistedPrices.TryGetRate(fromCurrency, "GBP", timestamp)
+                         ?? _delistedPrices.TryGetRate(fromCurrency, "USD", timestamp)
+                         ?? _delistedPrices.TryGetRate(fromCurrency, "EUR", timestamp);
+            if (csvCandle != null)
+            {
+                var rateDate = DateTimeOffset.FromUnixTimeSeconds(csvCandle.Timestamp);
+                return $"{rateDate:dd/MM} (Kraken CSV)";
+            }
+        }
+
+        // Manual pair override
+        if (TryGetManualRate(fromCurrency, timestamp).HasValue)
+            return "Manual Override";
 
         return null;
     }
@@ -1289,6 +1423,7 @@ public class FxConversionService
         foreach (var (pair, rates) in _rateCache)
         {
             if (rates.Count == 0) continue;
+            if (_activeCacheKeys.Count > 0 && !_activeCacheKeys.Contains(pair)) continue;
 
             _pairSources.TryGetValue(pair, out var source);
 
@@ -1304,6 +1439,29 @@ public class FxConversionService
             });
         }
 
+        // Also surface pairs from the CSV dataset that aren't in the live cache
+        if (_delistedPrices != null)
+        {
+            foreach (var pairName in _delistedPrices.GetPairNames())
+            {
+                if (_rateCache.ContainsKey(pairName)) continue;
+                if (_activeCsvPairNames.Count > 0 && !_activeCsvPairNames.Contains(pairName)) continue;
+                var candles = _delistedPrices.GetPairCandles(pairName);
+                if (candles == null || candles.Count == 0) continue;
+
+                results.Add(new FxCacheInfo
+                {
+                    PairName = pairName,
+                    DataPoints = candles.Count,
+                    EarliestDate = DateTimeOffset.FromUnixTimeSeconds(candles.Keys.First()),
+                    LatestDate = DateTimeOffset.FromUnixTimeSeconds(candles.Keys.Last()),
+                    SampleRate = candles.Values[candles.Count - 1].Close,
+                    OnDisk = false,
+                    DataSource = "Kraken (CSV)"
+                });
+            }
+        }
+
         return results.OrderBy(r => r.PairName).ToList();
     }
 
@@ -1313,19 +1471,67 @@ public class FxConversionService
     /// Returns all individual rate data points for a given pair, ordered by date.
     /// Returns empty list if pair not found.
     /// </summary>
-    public List<(DateTimeOffset Date, decimal Open, decimal High, decimal Low, decimal Close, decimal Average)> GetRateDataPoints(string pairName)
+    public List<(DateTimeOffset Date, decimal Open, decimal High, decimal Low, decimal Close, decimal Average, string Source)> GetRateDataPoints(string pairName)
     {
-        if (!_rateCache.TryGetValue(pairName, out var rates))
+        // Handle manual override entries selected via "[Manual] ASSET" naming
+        const string manualPrefix = "[Manual] ";
+        if (pairName.StartsWith(manualPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var asset = pairName[manualPrefix.Length..].ToUpperInvariant();
+            if (_manualOverrides.TryGetValue(asset, out var manualRates))
+                return manualRates.Select(kv =>
+                {
+                    var r = kv.Value;
+                    return (Date: DateTimeOffset.FromUnixTimeSeconds(kv.Key),
+                            Open: r, High: r, Low: r, Close: r, Average: r,
+                            Source: "Manual Override");
+                }).ToList();
             return new();
+        }
 
-        return rates.Select(kv => (
-            Date:    DateTimeOffset.FromUnixTimeSeconds(kv.Key),
-            Open:    kv.Value.Open,
-            High:    kv.Value.High,
-            Low:     kv.Value.Low,
-            Close:   kv.Value.Close,
-            Average: (kv.Value.High + kv.Value.Low) / 2m
-        )).ToList();
+        var result = new List<(DateTimeOffset Date, decimal Open, decimal High, decimal Low, decimal Close, decimal Average, string Source)>();
+
+        // Kraken live / CryptoCompare cache
+        if (_rateCache.TryGetValue(pairName, out var rates))
+        {
+            _pairSources.TryGetValue(pairName, out var src);
+            result.AddRange(rates.Select(kv => (
+                Date:    DateTimeOffset.FromUnixTimeSeconds(kv.Key),
+                Open:    kv.Value.Open,
+                High:    kv.Value.High,
+                Low:     kv.Value.Low,
+                Close:   kv.Value.Close,
+                Average: (kv.Value.High + kv.Value.Low) / 2m,
+                Source:  src ?? "Kraken"
+            )));
+        }
+        else
+        {
+            // Fall back to CSV data for delisted pairs
+            var csvCandles = _delistedPrices?.GetPairCandles(pairName);
+            if (csvCandles != null)
+                result.AddRange(csvCandles.Select(kv => (
+                    Date:    DateTimeOffset.FromUnixTimeSeconds(kv.Key),
+                    Open:    kv.Value.Open,
+                    High:    kv.Value.High,
+                    Low:     kv.Value.Low,
+                    Close:   kv.Value.Close,
+                    Average: (kv.Value.High + kv.Value.Low) / 2m,
+                    Source:  "Kraken (CSV)"
+                )));
+        }
+
+        // Merge manual overrides for this pair inline — shown with their own Source label
+        if (_manualOverrides.TryGetValue(pairName, out var manualForPair))
+            result.AddRange(manualForPair.Select(kv =>
+            {
+                var r = kv.Value;
+                return (Date: DateTimeOffset.FromUnixTimeSeconds(kv.Key),
+                        Open: r, High: r, Low: r, Close: r, Average: r,
+                        Source: "Manual Override");
+            }));
+
+        return result.OrderBy(p => p.Date).ToList();
     }
 
     /// <summary>
@@ -1333,7 +1539,24 @@ public class FxConversionService
     /// </summary>
     public List<string> GetPairNames()
     {
-        return _rateCache.Keys.Where(k => _rateCache[k].Count > 0).OrderBy(k => k).ToList();
+        var names = new HashSet<string>(
+            _rateCache.Where(kv => kv.Value.Count > 0).Select(kv => kv.Key),
+            StringComparer.OrdinalIgnoreCase);
+
+        if (_delistedPrices != null)
+            foreach (var p in _delistedPrices.GetPairNames())
+                names.Add(p);
+
+        // Only add [Manual] prefix for pairs with no cached/CSV data — for known pairs the
+        // manual override points are merged inline by GetRateDataPoints.
+        var result = new List<string>(names.Count + _manualOverrides.Count);
+        foreach (var asset in _manualOverrides.Keys.OrderBy(a => a))
+            if (!names.Contains(asset))
+                result.Add($"[Manual] {asset}");
+
+        result.AddRange(names.OrderBy(k => k));
+
+        return result;
     }
 
     /// <summary>

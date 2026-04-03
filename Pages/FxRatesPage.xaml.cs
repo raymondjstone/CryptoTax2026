@@ -24,8 +24,13 @@ public sealed partial class FxRatesPage : Page
         {
             _mainWindow = mw;
             _fxService = fx;
-            LoadData();
         }
+        else if (e.Parameter is (MainWindow mw2, _))
+        {
+            _mainWindow = mw2;
+            _fxService = null;
+        }
+        LoadData();
     }
 
     private void LoadData()
@@ -61,9 +66,18 @@ public sealed partial class FxRatesPage : Page
         }
 
         var points = _fxService.GetRateDataPoints(pair);
-        var vms = points.Select(p => new RateDataPointRow(p.Date, p.Open, p.High, p.Low, p.Close, p.Average)).ToList();
+        var vms = points.Select(p => new RateDataPointRow(p.Date, p.Open, p.High, p.Low, p.Close, p.Average, p.Source)).ToList();
         RateExplorerList.ItemsSource = vms;
         RateExplorerStatus.Text = $"{vms.Count:#,##0} data points";
+    }
+
+    private void RefreshExplorerDropdown()
+    {
+        if (_fxService == null) return;
+        var current = RateExplorerPairFilter.SelectedItem as string;
+        RateExplorerPairFilter.ItemsSource = _fxService.GetPairNames();
+        if (current != null)
+            RateExplorerPairFilter.SelectedItem = current;
     }
 
     private void LoadManualOverrides()
@@ -91,7 +105,7 @@ public sealed partial class FxRatesPage : Page
             Grid.SetColumn(tb, col);
             header.Children.Add(tb);
         }
-        AddHeader(0, "Asset"); AddHeader(1, "Date"); AddHeader(2, "GBP Rate");
+        AddHeader(0, "Pair"); AddHeader(1, "Date"); AddHeader(2, "GBP Rate");
         ManualOverridesPanel.Children.Add(header);
 
         foreach (var (asset, date, rate) in overrides)
@@ -102,15 +116,15 @@ public sealed partial class FxRatesPage : Page
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(180) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-            var assetText = new TextBlock { Text = asset, VerticalAlignment = VerticalAlignment.Center };
+            var pairText  = new TextBlock { Text = asset, VerticalAlignment = VerticalAlignment.Center };
             var dateText  = new TextBlock { Text = date.ToString("dd/MM/yyyy"), VerticalAlignment = VerticalAlignment.Center };
             var rateText  = new TextBlock { Text = rate.ToString("0.##########"), VerticalAlignment = VerticalAlignment.Center };
             var removeBtn = new Button { Content = "Remove", Tag = (asset, date) };
             removeBtn.Click += RemoveOverride_Click;
 
-            Grid.SetColumn(assetText, 0); Grid.SetColumn(dateText, 1);
+            Grid.SetColumn(pairText, 0);  Grid.SetColumn(dateText, 1);
             Grid.SetColumn(rateText, 2);  Grid.SetColumn(removeBtn, 3);
-            row.Children.Add(assetText); row.Children.Add(dateText);
+            row.Children.Add(pairText);  row.Children.Add(dateText);
             row.Children.Add(rateText);  row.Children.Add(removeBtn);
             ManualOverridesPanel.Children.Add(row);
         }
@@ -120,12 +134,12 @@ public sealed partial class FxRatesPage : Page
     {
         if (_fxService == null) return;
 
-        var asset = ManualAssetBox.Text.Trim().ToUpperInvariant();
+        var pair = ManualAssetBox.Text.Trim().ToUpperInvariant();
         var rateText = ManualRateBox.Text.Trim();
 
-        if (string.IsNullOrEmpty(asset))
+        if (string.IsNullOrEmpty(pair))
         {
-            OverrideInfoBar.Message = "Please enter an asset name.";
+            OverrideInfoBar.Message = "Please enter a pair name (e.g. BTCGBP, KUSD).";
             OverrideInfoBar.Severity = InfoBarSeverity.Warning;
             OverrideInfoBar.IsOpen = true;
             return;
@@ -145,15 +159,16 @@ public sealed partial class FxRatesPage : Page
             ? new DateTimeOffset(ManualDatePicker.Date.Value.DateTime, TimeSpan.Zero)
             : new DateTimeOffset(DateTimeOffset.UtcNow.Date, TimeSpan.Zero);
 
-        _fxService.SetManualOverride(asset, selectedDate, rate);
+        _fxService.SetManualOverride(pair, selectedDate, rate);
         ManualAssetBox.Text = "";
         ManualRateBox.Text = "";
 
-        OverrideInfoBar.Message = $"Rate saved: 1 {asset} = {rate:0.##########} GBP on {selectedDate:dd/MM/yyyy}.";
+        OverrideInfoBar.Message = $"Rate saved: 1 unit of {pair} = {rate:0.##########} on {selectedDate:dd/MM/yyyy}.";
         OverrideInfoBar.Severity = InfoBarSeverity.Success;
         OverrideInfoBar.IsOpen = true;
 
         LoadManualOverrides();
+        RefreshExplorerDropdown();
     }
 
     private void RemoveOverride_Click(object sender, RoutedEventArgs e)
@@ -168,12 +183,13 @@ public sealed partial class FxRatesPage : Page
         OverrideInfoBar.IsOpen = true;
 
         LoadManualOverrides();
+        RefreshExplorerDropdown();
     }
 }
 
 internal class RateDataPointRow
 {
-    public RateDataPointRow(DateTimeOffset date, decimal open, decimal high, decimal low, decimal close, decimal average)
+    public RateDataPointRow(DateTimeOffset date, decimal open, decimal high, decimal low, decimal close, decimal average, string source)
     {
         DateFormatted    = date.ToString("dd/MM/yyyy");
         OpenFormatted    = open.ToString("0.##########");
@@ -181,6 +197,7 @@ internal class RateDataPointRow
         LowFormatted     = low.ToString("0.##########");
         CloseFormatted   = close.ToString("0.##########");
         AverageFormatted = average.ToString("0.##########");
+        SourceFormatted  = source;
     }
     public string DateFormatted    { get; }
     public string OpenFormatted    { get; }
@@ -188,6 +205,7 @@ internal class RateDataPointRow
     public string LowFormatted     { get; }
     public string CloseFormatted   { get; }
     public string AverageFormatted { get; }
+    public string SourceFormatted  { get; }
 }
 
 internal class FxRateRow

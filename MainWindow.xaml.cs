@@ -27,6 +27,7 @@ public sealed partial class MainWindow : Window
     private List<CalculationWarning> _warnings = new();
     private AppSettings _settings = new();
     private FxConversionService? _fxService;
+    private DelistedPriceService? _delistedPriceService;
     private Dictionary<string, Section104Pool> _finalPools = new();
     private CgtCalculationService? _lastCgtService; // cached for lightweight summary-only recalculation
 
@@ -106,6 +107,9 @@ public sealed partial class MainWindow : Window
 
             _krakenService.SetCredentials(_settings.KrakenApiKey ?? "", _settings.KrakenApiSecret ?? "");
 
+            // Load delisted pairs price dataset (used as FX fallback and for delist dates)
+            _delistedPriceService = DelistedPriceService.TryLoad();
+
             // Apply saved theme
             if (Content is FrameworkElement root)
             {
@@ -182,7 +186,7 @@ public sealed partial class MainWindow : Window
         _warnings = new List<CalculationWarning>();
 
         // Create FX service — constructor restores _pairMap, then load all cached files
-        _fxService = new FxConversionService(_krakenService, _warnings, _storageService.GetDataFolderPath(), _settings.FxRateType);
+        _fxService = new FxConversionService(_krakenService, _warnings, _storageService.GetDataFolderPath(), _settings.FxRateType, _delistedPriceService);
         _fxService.LoadAllFromDiskCache();
 
         var currencies = _ledger
@@ -208,6 +212,20 @@ public sealed partial class MainWindow : Window
         var warnings = _warnings;
         var trades = _trades;
         var delistedAssets = _settings.EffectiveDelistedAssets;
+        var costOverrides = _settings.CostBasisOverrides;
+        var mergedLedger = GetMergedLedger();
+        var userInputs = _settings.TaxYearInputs;
+
+        var (summaries, pools, cgtService) = await Task.Run(() =>
+        {
+            var svc = new CgtCalculationService(fxService, warnings, trades, delistedAssets, costOverrides);
+            var results = svc.CalculateAllTaxYears(mergedLedger, userInputs);
+            return (results, svc.FinalPools, svc);
+        });
+
+        _taxYearSummaries = summaries;
+        _finalPools = pools;
+        _lastCgtService = cgtService;
 
         RebuildTabs();
     }
@@ -223,8 +241,15 @@ public sealed partial class MainWindow : Window
         if (_ledger.Count == 0) return;
 
         var warnings = new List<CalculationWarning>();
-        var fxService = new FxConversionService(_krakenService, warnings, _storageService.GetDataFolderPath(), _settings.FxRateType);
+        var fxService = new FxConversionService(_krakenService, warnings, _storageService.GetDataFolderPath(), _settings.FxRateType, _delistedPriceService);
         fxService.LoadAllFromDiskCache();
+
+        var currencies = _ledger
+            .Select(e => e.NormalisedAsset)
+            .Where(a => !string.IsNullOrEmpty(a))
+            .Distinct()
+            .ToList();
+        fxService.SetActiveCurrencies(currencies);
 
         var trades = _trades;
         var delistedAssets = _settings.DelistedAssets;
@@ -256,10 +281,24 @@ public sealed partial class MainWindow : Window
     {
         if (_ledger.Count == 0 || _fxService == null) return;
 
-        var warnings = new List<CalculationWarning>();
         var fxService = _fxService;
+        var warnings = _warnings;
         var trades = _trades;
         var delistedAssets = _settings.EffectiveDelistedAssets;
+        var costOverrides = _settings.CostBasisOverrides;
+        var mergedLedger = GetMergedLedger();
+        var userInputs = _settings.TaxYearInputs;
+
+        var (summaries, pools, cgtService) = await Task.Run(() =>
+        {
+            var svc = new CgtCalculationService(fxService, warnings, trades, delistedAssets, costOverrides);
+            var results = svc.CalculateAllTaxYears(mergedLedger, userInputs);
+            return (results, svc.FinalPools, svc);
+        });
+
+        _taxYearSummaries = summaries;
+        _finalPools = pools;
+        _lastCgtService = cgtService;
 
         RebuildTabs();
     }
@@ -295,19 +334,9 @@ public sealed partial class MainWindow : Window
 
     private void RebuildTabs()
     {
-        // Remove dynamic tabs (keep Settings, Ledger, Delisted Assets, CSV Import at indices 0-3)
-        while (NavView.MenuItems.Count > 4)
-            NavView.MenuItems.RemoveAt(4);
-
-        if (_taxYearSummaries.Count > 0)
-        {
-            NavView.MenuItems.Add(new NavigationViewItem
-            {
-                Content = "P&L Summary",
-                Tag = "PnLSummary",
-                Icon = new SymbolIcon(Symbol.Library)
-            });
-        }
+        // Remove dynamic tabs (keep Settings, Delisted Assets, FX Rates, Ledger, CSV Import at indices 0-4)
+        while (NavView.MenuItems.Count > 5)
+            NavView.MenuItems.RemoveAt(5);
 
         if (_finalPools.Count > 0)
         {
@@ -319,6 +348,16 @@ public sealed partial class MainWindow : Window
             });
         }
 
+        if (_taxYearSummaries.Count > 0)
+        {
+            NavView.MenuItems.Add(new NavigationViewItem
+            {
+                Content = "P&L Summary",
+                Tag = "PnLSummary",
+                Icon = new SymbolIcon(Symbol.Library)
+            });
+        }
+
         if (_finalPools.Count > 0 && _taxYearSummaries.Count > 0)
         {
             NavView.MenuItems.Add(new NavigationViewItem
@@ -326,16 +365,6 @@ public sealed partial class MainWindow : Window
                 Content = "Tools",
                 Tag = "Tools",
                 Icon = new SymbolIcon(Symbol.Repair)
-            });
-        }
-
-        if (_fxService != null)
-        {
-            NavView.MenuItems.Add(new NavigationViewItem
-            {
-                Content = "FX Rates",
-                Tag = "FxRates",
-                Icon = new SymbolIcon(Symbol.Globe)
             });
         }
 
@@ -390,7 +419,7 @@ public sealed partial class MainWindow : Window
             }
             else if (tag == "FxRates")
             {
-                ContentFrame.Navigate(typeof(FxRatesPage), (this, _fxService!));
+                ContentFrame.Navigate(typeof(FxRatesPage), (this, _fxService));
             }
             else if (tag != null)
             {
@@ -494,6 +523,7 @@ public sealed partial class MainWindow : Window
     public List<TaxYearSummary> TaxYearSummaries => _taxYearSummaries;
     public List<CalculationWarning> Warnings => _warnings;
     public FxConversionService? FxService => _fxService;
+    public DelistedPriceService? DelistedPriceService => _delistedPriceService;
     public Dictionary<string, Section104Pool> FinalPools => _finalPools;
 
     private static KeyboardAccelerator CreateAccelerator(VirtualKey key, VirtualKeyModifiers modifiers,

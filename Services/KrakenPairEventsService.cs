@@ -140,7 +140,8 @@ public class KrakenPairEventsService
     /// pair availability without automatically triggering £0 disposal calculations.
     /// </summary>
     // KUSD (Kraken USD stablecoin) was confirmed delisted on 14 July 2025.
-    // The JSON snapshot only captures an approximate date, so we hardcode the correct one.
+    // kraken_delisted.csv provides the accurate delist date via DelistedPriceService;
+    // this hardcoded date is used as a fallback when the CSV is unavailable.
     private static readonly DateTimeOffset KusdDelistDate = new(2025, 7, 14, 0, 0, 0, TimeSpan.Zero);
 
     public List<DelistedAssetEvent> GetDefaultDelistEvents()
