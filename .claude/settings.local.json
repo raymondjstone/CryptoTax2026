@@ -24,7 +24,13 @@
       "Bash(find C:/Users/passp/AppData -type f \\\\\\(-name *CryptoTax* -o -name *appsettings* -o -name *.json \\\\\\))",
       "Bash(python3:*)",
       "Bash(dotnet publish:*)",
-      "Bash(powershell -ExecutionPolicy Bypass -File BuildMSI.ps1 -Platform x64)"
+      "Bash(powershell -ExecutionPolicy Bypass -File BuildMSI.ps1 -Platform x64)",
+      "Bash(python:*)",
+      "Bash(PYTHONIOENCODING=utf-8 python:*)",
+      "Bash(xargs grep:*)",
+      "Bash(grep -n \"IsFiatCurrency\\\\|USDT\\\\|USDC\\\\|stablecoin\" /c/Code/KrakenSheridan/KrakenPlusPlus/Kraken/DataModels/*.cs -r -i)",
+      "Bash(grep -rn \"Conversion\\\\|Delis\\\\|Convert\\\\|staking\\\\|deposit\\\\|withdrawal\" /c/Code/KrakenSheridan/KrakenPlusPlus/Kraken/DataModels/Reports/*.cs -i)",
+      "Bash(grep -rn \"GetStakingLedgerEntriesUntilTaxReportYearAsync\\\\|GetConversionPricesUntilTaxReportYearAsync\" /c/Code/KrakenSheridan/KrakenPlusPlus/Kraken/Managers/*.cs)"
     ]
   }
 }
