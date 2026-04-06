@@ -1154,9 +1154,14 @@ public class CgtCalculationService
         // transactions yet (e.g. when a new UK tax year starts on 6 April).
         // Only add it when the user has some data loaded to avoid a lone empty tab.
         if (allTaxYears.Count > 0)
-            allTaxYears.Add(GetTaxYearLabel(_nowOverride ?? DateTimeOffset.UtcNow));
+        {
+            // Use UK local time so the boundary aligns with 6 April in the UK
+            // (UTC can lag behind BST by one hour, causing the wrong tax year near midnight).
+            var ukNow = _nowOverride ?? TimeZoneInfo.ConvertTimeBySystemTimeZoneId(DateTimeOffset.UtcNow, "GMT Standard Time");
+            allTaxYears.Add(GetTaxYearLabel(ukNow));
+        }
 
-        var summaries = new List<TaxYearSummary>();
+        var summaries = new List<TaxYearSummary>(allTaxYears.Count);
         decimal carriedLosses = 0; // Running total of unused losses from prior years
 
         foreach (var taxYearLabel in allTaxYears.OrderBy(y => y))

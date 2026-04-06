@@ -30,7 +30,9 @@
       "Bash(xargs grep:*)",
       "Bash(grep -n \"IsFiatCurrency\\\\|USDT\\\\|USDC\\\\|stablecoin\" /c/Code/KrakenSheridan/KrakenPlusPlus/Kraken/DataModels/*.cs -r -i)",
       "Bash(grep -rn \"Conversion\\\\|Delis\\\\|Convert\\\\|staking\\\\|deposit\\\\|withdrawal\" /c/Code/KrakenSheridan/KrakenPlusPlus/Kraken/DataModels/Reports/*.cs -i)",
-      "Bash(grep -rn \"GetStakingLedgerEntriesUntilTaxReportYearAsync\\\\|GetConversionPricesUntilTaxReportYearAsync\" /c/Code/KrakenSheridan/KrakenPlusPlus/Kraken/Managers/*.cs)"
+      "Bash(grep -rn \"GetStakingLedgerEntriesUntilTaxReportYearAsync\\\\|GetConversionPricesUntilTaxReportYearAsync\" /c/Code/KrakenSheridan/KrakenPlusPlus/Kraken/Managers/*.cs)",
+      "Bash(gh pr:*)",
+      "Bash(powershell:*)"
     ]
   }
 }

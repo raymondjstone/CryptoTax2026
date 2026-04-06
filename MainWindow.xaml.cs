@@ -132,8 +132,8 @@ public sealed partial class MainWindow : Window
             ContentFrame.Navigate(typeof(SettingsPage), this);
             NavView.SelectedItem = NavView.MenuItems[0];
 
-            // Check for app updates (non-blocking)
-            await CheckForUpdateAsync();
+            // Check for app updates (fire-and-forget so it doesn't block startup)
+            _ = CheckForUpdateAsync();
 
             // Show coffee prompt after UI is fully loaded
             if (!_coffeePromptShown)

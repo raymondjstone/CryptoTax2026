@@ -2,6 +2,7 @@ using System;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace CryptoTax2026.Services;
@@ -11,12 +12,14 @@ public class UpdateCheckService
     private const string LatestReleaseUrl = "https://api.github.com/repos/raymondjstone/CryptoTax2026/releases/latest";
     private const string ReleasesPageUrl = "https://github.com/raymondjstone/CryptoTax2026/releases/latest";
 
-    private static readonly HttpClient _http = new();
+    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(10) };
 
     static UpdateCheckService()
     {
-        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("CryptoTax2026", "1.0"));
-        _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        _http.DefaultRequestHeaders.UserAgent.Add(
+            new ProductInfoHeaderValue("CryptoTax2026", GetCurrentVersion().ToString()));
+        _http.DefaultRequestHeaders.Accept.Add(
+            new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
     }
 
     /// <summary>
@@ -32,15 +35,16 @@ public class UpdateCheckService
     /// Checks GitHub for the latest release. Returns the newer version and download URL
     /// if an update is available, or null if the app is up to date.
     /// </summary>
-    public static async Task<(Version NewVersion, string DownloadUrl)?> CheckForUpdateAsync()
+    public static async Task<(Version NewVersion, string DownloadUrl)?> CheckForUpdateAsync(
+        CancellationToken cancellationToken = default)
     {
         try
         {
-            var response = await _http.GetAsync(LatestReleaseUrl);
+            var response = await _http.GetAsync(LatestReleaseUrl, cancellationToken);
             if (!response.IsSuccessStatusCode)
                 return null;
 
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -65,7 +69,7 @@ public class UpdateCheckService
         }
         catch
         {
-            // Network errors, JSON parse failures, etc. — silently ignore
+            // Network errors, timeouts, JSON parse failures — silently ignore
             return null;
         }
     }

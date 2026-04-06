@@ -118,6 +118,22 @@
   </Target>
 
   <!--
+    Always sync assembly version from Package.appxmanifest so the running app
+    can report its real version (used by the update checker). Skipped when
+    AutoIncrementVersion will handle it during MSIX packaging.
+  -->
+  <Target Name="SyncVersionFromManifest" BeforeTargets="PrepareForBuild" Condition="'$(GenerateAppxPackageOnBuild)' != 'true'">
+    <XmlPeek XmlInputPath="$(MSBuildProjectDirectory)\Package.appxmanifest" Query="/m:Package/m:Identity/@Version" Namespaces="&lt;Namespace Prefix='m' Uri='http://schemas.microsoft.com/appx/manifest/foundation/windows10' /&gt;">
+      <Output TaskParameter="Result" ItemName="_ManifestVersion" />
+    </XmlPeek>
+    <PropertyGroup>
+      <AssemblyVersion>@(_ManifestVersion)</AssemblyVersion>
+      <FileVersion>@(_ManifestVersion)</FileVersion>
+      <Version>@(_ManifestVersion)</Version>
+    </PropertyGroup>
+  </Target>
+
+  <!--
     Auto-increment version on publish. Reads the current version from Package.appxmanifest,
     bumps the build (third) component, and writes it back. Also sets AssemblyVersion/FileVersion
     so the DLL and MSIX package stay in sync. Runs early in the build before packaging.
