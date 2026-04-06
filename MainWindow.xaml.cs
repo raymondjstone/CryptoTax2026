@@ -132,6 +132,9 @@ public sealed partial class MainWindow : Window
             ContentFrame.Navigate(typeof(SettingsPage), this);
             NavView.SelectedItem = NavView.MenuItems[0];
 
+            // Check for app updates (non-blocking)
+            await CheckForUpdateAsync();
+
             // Show coffee prompt after UI is fully loaded
             if (!_coffeePromptShown)
             {
@@ -593,6 +596,32 @@ public sealed partial class MainWindow : Window
         _settings.BuyMeCoffeeClicked = true;
         _settings.LastCoffeePrompt = DateTimeOffset.UtcNow;
         await _storageService.SaveSettingsAsync(_settings);
+    }
+
+    private async Task CheckForUpdateAsync()
+    {
+        var update = await UpdateCheckService.CheckForUpdateAsync();
+        if (update == null)
+            return;
+
+        var (newVersion, downloadUrl) = update.Value;
+        var current = UpdateCheckService.GetCurrentVersion();
+
+        var dialog = new ContentDialog
+        {
+            Title = "Update Available",
+            Content = $"A new version of CryptoTax2026 is available.\n\nCurrent version: {current}\nLatest version: {newVersion}\n\nWould you like to download it?",
+            PrimaryButtonText = "Download",
+            CloseButtonText = "Later",
+            DefaultButton = ContentDialogButton.Primary
+        };
+        dialog.PrimaryButtonClick += (s, e) =>
+        {
+            _ = Windows.System.Launcher.LaunchUriAsync(new Uri(downloadUrl));
+        };
+        dialog.XamlRoot = ContentFrame.XamlRoot;
+        if (dialog.XamlRoot == null) return;
+        await dialog.ShowAsync();
     }
 
     public async void ShowCoffeePromptIfNeeded()
