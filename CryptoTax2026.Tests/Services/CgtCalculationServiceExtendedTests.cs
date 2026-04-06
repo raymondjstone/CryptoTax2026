@@ -572,7 +572,7 @@ public class CgtCalculationServiceExtendedTests
     {
         var warnings = new List<CalculationWarning>();
         var fx = TestFxHelper.CreateWithDefaultRates(warnings);
-        var calc = new CgtCalculationService(fx, warnings);
+        var calc = new CgtCalculationService(fx, warnings, nowOverride: new DateTimeOffset(2023, 8, 1, 0, 0, 0, TimeSpan.Zero));
 
         var time = new DateTimeOffset(2023, 8, 1, 10, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
         var ledger = new List<KrakenLedgerEntry>

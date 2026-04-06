@@ -47,7 +47,7 @@ public class CgtCalculationServiceTests
     {
         var warnings = new List<CalculationWarning>();
         var fx = TestFxHelper.CreateWithDefaultRates(warnings);
-        var calc = new CgtCalculationService(fx, warnings);
+        var calc = new CgtCalculationService(fx, warnings, nowOverride: new DateTimeOffset(2023, 6, 1, 0, 0, 0, TimeSpan.Zero));
 
         // Buy 1 ETH for £1000 GBP, then sell for £1500 GBP
         var ledger = new LedgerBuilder()
@@ -289,7 +289,7 @@ public class CgtCalculationServiceTests
     {
         var warnings = new List<CalculationWarning>();
         var fx = TestFxHelper.CreateWithDefaultRates(warnings);
-        var calc = new CgtCalculationService(fx, warnings);
+        var calc = new CgtCalculationService(fx, warnings, nowOverride: new DateTimeOffset(2023, 8, 1, 0, 0, 0, TimeSpan.Zero));
 
         var ledger = new LedgerBuilder()
             .AddStaking(
@@ -338,7 +338,7 @@ public class CgtCalculationServiceTests
     {
         var warnings = new List<CalculationWarning>();
         var fx = TestFxHelper.CreateWithDefaultRates(warnings);
-        var calc = new CgtCalculationService(fx, warnings);
+        var calc = new CgtCalculationService(fx, warnings, nowOverride: new DateTimeOffset(2023, 8, 1, 0, 0, 0, TimeSpan.Zero));
 
         var ledger = new LedgerBuilder()
             .AddDividend(
@@ -437,7 +437,7 @@ public class CgtCalculationServiceTests
     {
         var warnings = new List<CalculationWarning>();
         var fx = TestFxHelper.CreateWithDefaultRates(warnings);
-        var calc = new CgtCalculationService(fx, warnings);
+        var calc = new CgtCalculationService(fx, warnings, nowOverride: new DateTimeOffset(2024, 6, 1, 0, 0, 0, TimeSpan.Zero));
 
         var ledger = new LedgerBuilder()
             .AddTrade(

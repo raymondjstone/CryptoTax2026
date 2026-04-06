@@ -12,6 +12,7 @@ public class CgtCalculationService
     private readonly List<KrakenTrade> _trades;
     private readonly List<DelistedAssetEvent> _delistedAssets;
     private readonly Dictionary<string, decimal> _costBasisOverrides;
+    private readonly DateTimeOffset? _nowOverride;
 
     /// <summary>
     /// After CalculateAllTaxYears runs, holds the final Section 104 pool state per asset.
@@ -24,13 +25,14 @@ public class CgtCalculationService
     private List<KrakenLedgerEntry>? _cachedStakingEntries;
     private Dictionary<string, (BalanceSnapshot Start, BalanceSnapshot End)>? _cachedSnapshots;
 
-    public CgtCalculationService(FxConversionService fxService, List<CalculationWarning> warnings, List<KrakenTrade>? trades = null, List<DelistedAssetEvent>? delistedAssets = null, Dictionary<string, decimal>? costBasisOverrides = null)
+    public CgtCalculationService(FxConversionService fxService, List<CalculationWarning> warnings, List<KrakenTrade>? trades = null, List<DelistedAssetEvent>? delistedAssets = null, Dictionary<string, decimal>? costBasisOverrides = null, DateTimeOffset? nowOverride = null)
     {
         _fxService = fxService;
         _warnings = warnings;
         _trades = trades ?? new();
         _delistedAssets = delistedAssets ?? new();
         _costBasisOverrides = costBasisOverrides ?? new();
+        _nowOverride = nowOverride;
     }
 
     /// <summary>
@@ -1147,6 +1149,12 @@ public class CgtCalculationService
         if (balanceSnapshots != null)
             foreach (var key in balanceSnapshots.Keys)
                 allTaxYears.Add(key);
+
+        // Always include the current tax year so its tab appears even with no
+        // transactions yet (e.g. when a new UK tax year starts on 6 April).
+        // Only add it when the user has some data loaded to avoid a lone empty tab.
+        if (allTaxYears.Count > 0)
+            allTaxYears.Add(GetTaxYearLabel(_nowOverride ?? DateTimeOffset.UtcNow));
 
         var summaries = new List<TaxYearSummary>();
         decimal carriedLosses = 0; // Running total of unused losses from prior years
