@@ -14,6 +14,17 @@
     <!-- Automatically remove older versions on upgrade -->
     <MajorUpgrade DowngradeErrorMessage="A newer version of CryptoTax2026 is already installed." />
 
+    <!-- Launch app after install/upgrade (runs as the installing user, not elevated) -->
+    <SetProperty Id="WixShellExecTarget" Value="[INSTALLFOLDER]CryptoTax2026.exe"
+                 Before="LaunchApplication" Sequence="execute" />
+    <CustomAction Id="LaunchApplication"
+                  DllEntry="WixShellExec"
+                  Impersonate="yes"
+                  BinaryRef="$(var.UtilCA)" />
+    <InstallExecuteSequence>
+      <Custom Action="LaunchApplication" After="InstallFinalize" Condition="NOT REMOVE" />
+    </InstallExecuteSequence>
+
     <Feature Id="ProductFeature" Title="CryptoTax2026" Level="1">
       <ComponentGroupRef Id="HarvestedFiles" />
       <ComponentGroupRef Id="ApplicationShortcuts" />

@@ -108,7 +108,9 @@ $outputName = "CryptoTax2026-$Platform.msi"
 [xml]$manifest = Get-Content "Package.appxmanifest"
 $productVersion = $manifest.Package.Identity.Version
 Write-Host "Product version: $productVersion" -ForegroundColor Cyan
-wix build "Installer.wxs" "bin\buildmsi-temp\HarvestedFiles.wxs" -o "bin\installer\$outputName" -arch $Platform.ToLower() -d "ProductVersion=$productVersion" -d "SourceDir=bin\publish\msi" -pdbtype none
+$utilCaMap = @{ "x64" = "Wix4UtilCA_X64"; "x86" = "Wix4UtilCA_X86"; "arm64" = "Wix4UtilCA_A64" }
+$utilCa = $utilCaMap[$Platform.ToLower()]
+wix build "Installer.wxs" "bin\buildmsi-temp\HarvestedFiles.wxs" -o "bin\installer\$outputName" -arch $Platform.ToLower() -d "ProductVersion=$productVersion" -d "SourceDir=bin\publish\msi" -d "UtilCA=$utilCa" -ext WixToolset.Util.wixext -pdbtype none
 
 if ($LASTEXITCODE -ne 0) {
     throw "Failed to build MSI"
