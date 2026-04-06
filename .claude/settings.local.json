@@ -32,7 +32,8 @@
       "Bash(grep -rn \"Conversion\\\\|Delis\\\\|Convert\\\\|staking\\\\|deposit\\\\|withdrawal\" /c/Code/KrakenSheridan/KrakenPlusPlus/Kraken/DataModels/Reports/*.cs -i)",
       "Bash(grep -rn \"GetStakingLedgerEntriesUntilTaxReportYearAsync\\\\|GetConversionPricesUntilTaxReportYearAsync\" /c/Code/KrakenSheridan/KrakenPlusPlus/Kraken/Managers/*.cs)",
       "Bash(gh pr:*)",
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "Bash(taskkill //F //IM \"XamlCompiler.exe\")"
     ]
   }
 }

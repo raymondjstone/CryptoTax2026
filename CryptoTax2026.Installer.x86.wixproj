@@ -7,12 +7,13 @@
     <InstallerPlatform>x86</InstallerPlatform>
     <AppPublishDir>$(MSBuildProjectDirectory)\bin\publish\msi-x86\</AppPublishDir>
     <OutputPath>$(MSBuildProjectDirectory)\bin\installer\</OutputPath>
-    <DefineConstants>SourceDir=$(AppPublishDir.TrimEnd('\'))</DefineConstants>
+    <DefineConstants>SourceDir=$(AppPublishDir.TrimEnd('\'));UtilCA=Wix4UtilCA_X86</DefineConstants>
     <SuppressSpecificWarnings>1076</SuppressSpecificWarnings>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="WixToolset.Heat" Version="5.0.2" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="5.0.2" />
   </ItemGroup>
 
   <ItemGroup>
